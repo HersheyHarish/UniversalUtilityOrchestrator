@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  orchestrator:
+    build: .
+    volumes:
+      - .:/app  
+    ports:
+      - "8000:8000"
+    environment:
+      - AZURE_STORAGE_CONNECTION_STRING=use_development_settings=true
+      - ENV=development
+    command:
+      - sh
+      - -c
+      - |
+        echo "Starting Universal Utility Orchestrator..."
+        python src/core/orchestrator.py

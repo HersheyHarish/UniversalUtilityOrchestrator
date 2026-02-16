@@ -1,0 +1,27 @@
+{
+    "agents": [
+        {
+        "name": "billing_agent",
+        "description": "An agent responsible for handling billing-related tasks, such as processing payments, generating invoices, and managing subscriptions.",
+        "capabilities": [
+            "Process payments securely and efficiently.",
+            "Generate accurate invoices based on customer usage and subscription plans.",
+            "Manage customer subscriptions, including upgrades, downgrades, and cancellations.",
+            "Integrate with various payment gateways and financial systems.",
+            "Provide detailed billing reports and analytics to customers and administrators."
+        ],
+        "endpoint": "http://localhost:8000/billing_agent"
+    },
+    {
+        "name": "anomaly_detection_agent",
+        "description": "An agent responsible for detecting anomalies in data, such as unusual patterns, outliers, or potential security threats.",
+        "capabilities": [
+            "Analyze large datasets to identify anomalies and outliers.",
+            "Use machine learning algorithms to improve anomaly detection accuracy over time.",
+            "Provide real-time alerts and notifications when anomalies are detected.",
+            "Integrate with various data sources and monitoring systems."
+        ],
+        "endpoint": "http://localhost:8000/anomaly_detection_agent"
+    }
+    ]
+}
