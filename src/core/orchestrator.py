@@ -11,382 +11,15 @@ import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
-
-@dataclass
-class AgentDefinition:
-    name: str
-    description: str
-    capabilities: list[str]
-    endpoint: str
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "AgentDefinition":
-        return cls(
-            name=payload["name"],
-            description=payload.get("description", ""),
-            capabilities=payload.get("capabilities", []),
-            endpoint=payload["endpoint"],
-        )
-
-
-class AgentRegistry:
-    def __init__(self, agents: list[AgentDefinition], registry_path: Path | None = None):
-        self.agents = agents
-        self.registry_path = registry_path
-
-    @classmethod
-    def load(cls, path: Path) -> "AgentRegistry":
-        with path.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-        agents = [AgentDefinition.from_dict(item) for item in raw.get("agents", [])]
-        return cls(agents=agents, registry_path=path)
-
-    def get(self, agent_name: str) -> AgentDefinition | None:
-        return next((agent for agent in self.agents if agent.name == agent_name), None)
-
-    def list_brief(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": agent.name,
-                "description": agent.description,
-                "capabilities": agent.capabilities,
-            }
-            for agent in self.agents
-        ]
-
-    def select_by_capabilities(self, required_capabilities: list[str]) -> AgentDefinition | None:
-        if not self.agents:
-            return None
-        if not required_capabilities:
-            return self.agents[0]
-
-        scored_agents: list[tuple[float, AgentDefinition]] = []
-        for agent in self.agents:
-            score = self._match_score(required_capabilities, agent.capabilities)
-            scored_agents.append((score, agent))
-
-        scored_agents.sort(key=lambda item: item[0], reverse=True)
-        top_score, top_agent = scored_agents[0]
-        return top_agent if top_score > 0 else None
-
-    def _match_score(self, required: list[str], offered: list[str]) -> float:
-        offered_text = " ".join(offered).lower()
-        offered_tokens = self._tokenize(offered_text)
-        score = 0.0
-
-        for capability in required:
-            query = capability.lower().strip()
-            if not query:
-                continue
-            if query in offered_text:
-                score += 1.0
-                continue
-
-            req_tokens = self._tokenize(query)
-            if not req_tokens:
-                continue
-
-            overlap = len(req_tokens.intersection(offered_tokens))
-            score += overlap / len(req_tokens)
-
-        return score
-
-    @staticmethod
-    def _tokenize(text: str) -> set[str]:
-        return set(re.findall(r"[a-zA-Z0-9_]+", text.lower()))
-
-
-@dataclass
-class GuardrailResult:
-    allowed: bool
-    sanitized_query: str
-    reason: str = ""
-    risk_flags: list[str] = field(default_factory=list)
-
-
-class InputGuardrails:
-    DEFAULT_BLOCKED_PATTERNS = [
-        r"(?i)ignore\s+previous\s+instructions",
-        r"(?i)reveal\s+(your\s+)?(system|developer)\s+prompt",
-        r"(?i)bypass\s+(all\s+)?safety",
-        r"(?i)act\s+as\s+root",
-    ]
-
-    def __init__(self, config: dict[str, Any] | None = None):
-        cfg = config or {}
-        self.max_input_chars = int(cfg.get("max_input_chars", 5000))
-        self.min_input_chars = int(cfg.get("min_input_chars", 3))
-        blocked_patterns = cfg.get("blocked_patterns", self.DEFAULT_BLOCKED_PATTERNS)
-        self.blocked_regexes = [re.compile(pattern) for pattern in blocked_patterns]
-
-    def validate(self, user_query: str) -> GuardrailResult:
-        sanitized = self._sanitize(user_query)
-
-        if len(sanitized) < self.min_input_chars:
-            return GuardrailResult(
-                allowed=False,
-                sanitized_query=sanitized,
-                reason="Input is too short. Please provide a more specific request.",
-            )
-
-        if len(sanitized) > self.max_input_chars:
-            return GuardrailResult(
-                allowed=False,
-                sanitized_query=sanitized,
-                reason=(
-                    f"Input exceeds {self.max_input_chars} characters. "
-                    "Please shorten your request."
-                ),
-            )
-
-        for blocked_regex in self.blocked_regexes:
-            if blocked_regex.search(sanitized):
-                return GuardrailResult(
-                    allowed=False,
-                    sanitized_query=sanitized,
-                    reason="Input blocked by safety guardrails.",
-                    risk_flags=[blocked_regex.pattern],
-                )
-
-        risk_flags: list[str] = []
-        if sanitized.count("```") > 2:
-            risk_flags.append("multiple_code_blocks")
-        if sanitized.count("http://") + sanitized.count("https://") > 8:
-            risk_flags.append("high_link_density")
-
-        return GuardrailResult(
-            allowed=True,
-            sanitized_query=sanitized,
-            reason="",
-            risk_flags=risk_flags,
-        )
-
-    @staticmethod
-    def _sanitize(user_query: str) -> str:
-        cleaned = user_query.replace("\x00", " ")
-        cleaned = re.sub(r"[\r\t]+", " ", cleaned)
-        return re.sub(r"\s+", " ", cleaned).strip()
-
-
-@dataclass
-class PlanStep:
-    id: str
-    objective: str
-    required_capabilities: list[str] = field(default_factory=list)
-    dependencies: list[str] = field(default_factory=list)
-    preferred_agent: str | None = None
-    output_key: str | None = None
-
-
-@dataclass
-class ExecutionPlan:
-    goal: str
-    steps: list[PlanStep]
-
-
-class PlanningService:
-    def __init__(self, model: ChatOllama, max_steps: int = 6):
-        self.model = model
-        self.max_steps = max_steps
-
-    def create_plan(self, user_query: str, registry: AgentRegistry) -> ExecutionPlan:
-        planning_prompt = self._build_prompt(user_query, registry)
-        try:
-            raw = self.model.invoke(planning_prompt).content
-            return self._parse_plan(raw)
-        except Exception as exc:  # pragma: no cover - protective fallback
-            print(f"[Planner] Failed to build plan with LLM: {exc}")
-            return self._fallback_plan(user_query, registry)
-
-    def _build_prompt(self, user_query: str, registry: AgentRegistry) -> list[Any]:
-        planning_system_message = (
-            "You are a planning service for a multi-agent orchestrator. "
-            "Return ONLY valid JSON. Do not include markdown or explanations.\n\n"
-            "JSON schema:\n"
-            "{\n"
-            '  "goal": "string",\n'
-            '  "steps": [\n'
-            "    {\n"
-            '      "id": "step_1",\n'
-            '      "objective": "string",\n'
-            '      "required_capabilities": ["string"],\n'
-            '      "dependencies": ["step_id"],\n'
-            '      "preferred_agent": "string or null",\n'
-            '      "output_key": "string"\n'
-            "    }\n"
-            "  ]\n"
-            "}\n\n"
-            f"Constraints:\n"
-            f"- At most {self.max_steps} steps.\n"
-            "- Dependencies must reference earlier steps.\n"
-            "- Keep steps concrete and agent-executable.\n"
-            "- Use `required_capabilities` to map steps to available agents."
-        )
-
-        planning_user_message = (
-            f"User request: {user_query}\n\n"
-            f"Available agents:\n{json.dumps(registry.list_brief(), indent=2)}"
-        )
-
-        return [
-            SystemMessage(content=planning_system_message),
-            HumanMessage(content=planning_user_message),
-        ]
-
-    def _parse_plan(self, raw_response: str) -> ExecutionPlan:
-        payload = self._extract_json_object(raw_response)
-        raw_steps = payload.get("steps", [])
-        steps: list[PlanStep] = []
-        seen_step_ids: set[str] = set()
-
-        for idx, raw_step in enumerate(raw_steps[: self.max_steps], start=1):
-            step_id = str(raw_step.get("id") or f"step_{idx}").strip()
-            if step_id in seen_step_ids:
-                step_id = f"{step_id}_{idx}"
-            seen_step_ids.add(step_id)
-
-            objective = str(raw_step.get("objective") or "").strip()
-            if not objective:
-                objective = f"Execute task segment {idx}"
-
-            dependencies = [str(dep).strip() for dep in raw_step.get("dependencies", []) if str(dep).strip()]
-            required_capabilities = [
-                str(cap).strip() for cap in raw_step.get("required_capabilities", []) if str(cap).strip()
-            ]
-
-            preferred_agent = raw_step.get("preferred_agent")
-            if preferred_agent is not None:
-                preferred_agent = str(preferred_agent).strip() or None
-
-            output_key = str(raw_step.get("output_key") or f"output_{idx}").strip()
-
-            steps.append(
-                PlanStep(
-                    id=step_id,
-                    objective=objective,
-                    required_capabilities=required_capabilities,
-                    dependencies=dependencies,
-                    preferred_agent=preferred_agent,
-                    output_key=output_key,
-                )
-            )
-
-        goal = str(payload.get("goal") or "Resolve the user request").strip()
-        if not steps:
-            raise ValueError("Plan contained no valid steps")
-
-        return ExecutionPlan(goal=goal, steps=steps)
-
-    def _fallback_plan(self, user_query: str, registry: AgentRegistry) -> ExecutionPlan:
-        default_agent = registry.agents[0].name if registry.agents else None
-        return ExecutionPlan(
-            goal=f"Resolve: {user_query}",
-            steps=[
-                PlanStep(
-                    id="step_1",
-                    objective="Handle the request end-to-end",
-                    required_capabilities=["general task handling"],
-                    dependencies=[],
-                    preferred_agent=default_agent,
-                    output_key="final_output",
-                )
-            ],
-        )
-
-    @staticmethod
-    def _extract_json_object(raw_response: str) -> dict[str, Any]:
-        raw_response = raw_response.strip()
-        fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw_response, flags=re.DOTALL)
-        candidate = fenced.group(1) if fenced else raw_response
-
-        start = candidate.find("{")
-        end = candidate.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            raise ValueError("No JSON object found in planner response")
-
-        json_blob = candidate[start : end + 1]
-        return json.loads(json_blob)
-
-
-class DAGCreator:
-    def build_execution_layers(self, plan: ExecutionPlan) -> list[list[PlanStep]]:
-        step_lookup = {step.id: step for step in plan.steps}
-        if len(step_lookup) != len(plan.steps):
-            raise ValueError("Duplicate step IDs are not allowed")
-
-        indegree: dict[str, int] = {step.id: 0 for step in plan.steps}
-        graph: dict[str, list[str]] = {step.id: [] for step in plan.steps}
-
-        for step in plan.steps:
-            for dependency in step.dependencies:
-                if dependency not in step_lookup:
-                    raise ValueError(f"Plan references unknown dependency: {dependency}")
-                graph[dependency].append(step.id)
-                indegree[step.id] += 1
-
-        ordered_ids = [step.id for step in plan.steps]
-        ready = [step_id for step_id in ordered_ids if indegree[step_id] == 0]
-        layers: list[list[PlanStep]] = []
-        processed_count = 0
-
-        while ready:
-            current_layer_ids = ready
-            layers.append([step_lookup[step_id] for step_id in current_layer_ids])
-            processed_count += len(current_layer_ids)
-
-            next_ready: list[str] = []
-            for step_id in current_layer_ids:
-                for child in graph[step_id]:
-                    indegree[child] -= 1
-                    if indegree[child] == 0:
-                        next_ready.append(child)
-
-            ready = sorted(next_ready, key=ordered_ids.index)
-
-        if processed_count != len(plan.steps):
-            raise ValueError("Plan has cyclic dependencies and cannot be executed")
-
-        return layers
-
-
-@dataclass
-class AgentInvocationResult:
-    success: bool
-    output: Any = None
-    error: str = ""
-
-
-class AgentInvoker:
-    def __init__(self, timeout_seconds: int = 30):
-        self.timeout_seconds = timeout_seconds
-
-    def invoke(self, agent: AgentDefinition, payload: dict[str, Any]) -> AgentInvocationResult:
-        try:
-            response = requests.post(agent.endpoint, json=payload, timeout=self.timeout_seconds)
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            return AgentInvocationResult(success=False, error=f"HTTP failure for {agent.name}: {exc}")
-
-        try:
-            return AgentInvocationResult(success=True, output=response.json())
-        except ValueError:
-            return AgentInvocationResult(success=True, output=response.text)
-
-    def demoInvoke(self, agent: AgentDefinition, payload: dict[str, Any]) -> AgentInvocationResult:
-        step = payload.get("step", {})
-        demo_output = {
-            "mode": "demoInvoke",
-            "message": (
-                f"DEMO_INVOKE_OK: Orchestrator reached {agent.name} "
-                f"for step `{step.get('id', 'unknown')}`."
-            ),
-            "agent": agent.name,
-            "objective": step.get("objective", ""),
-            "output_key": step.get("output_key", ""),
-        }
-        return AgentInvocationResult(success=True, output=demo_output)
-
-
+from agentRegistry import AgentDefinition, AgentRegistry
+from inputGuard import GuardrailResult, InputGuardrails
+from planner import ExecutionPlan, PlanStep, PlanningService
+from dagCreator import DAGCreator
+from agentInvoke import AgentInvocationResult, AgentInvoker
+
+# Class responsible for orchestrating the overall process. 
+# It integrates the guardrails, planning service, DAG creation, 
+# and agent invocation to execute the plan and synthesize a final answer for the user.
 class UniversalOrchestrator:
     def __init__(self, registry_path: str = "agents.json", config_path: str = "config.yaml"):
         config_file = self._resolve_path(config_path)
@@ -420,6 +53,10 @@ class UniversalOrchestrator:
         return trace["final_answer"]
 
     def run_with_trace(self, user_query: str) -> dict[str, Any]:
+        """
+        Run the orchestration process with tracing enabled.
+        """
+        # Step 1: Validate input against guardrails
         guardrail_result = self.guardrails.validate(user_query)
         if not guardrail_result.allowed:
             return {
@@ -431,10 +68,12 @@ class UniversalOrchestrator:
                 "final_answer": f"Request blocked by input guardrails: {guardrail_result.reason}",
             }
 
+        # Step 2: Create execution plan using the planning service
         print("[Hub] Building execution plan...")
         plan = self.planner.create_plan(guardrail_result.sanitized_query, self.registry)
         execution_layers = self.dag_creator.build_execution_layers(plan)
 
+        # 3: Execute the plan layer by layer, invoking agents and collecting results
         step_results: dict[str, dict[str, Any]] = {}
         for layer_index, layer in enumerate(execution_layers, start=1):
             layer_steps = ", ".join(step.id for step in layer)
@@ -451,7 +90,7 @@ class UniversalOrchestrator:
                         "steps": step_results,
                         "final_answer": self._summarize_failure(step, step_result),
                     }
-
+        # 4: Synthesize final answer from execution trace
         final_answer = self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
         return {
             "status": "completed",
@@ -466,6 +105,9 @@ class UniversalOrchestrator:
         user_query: str,
         previous_step_results: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
+        """
+        Execute a single step of the plan by invoking the appropriate agent.
+        """
         agent = self._select_agent(step)
         if agent is None:
             return {
@@ -494,6 +136,8 @@ class UniversalOrchestrator:
             },
         }
 
+        #using demo_invoke to simulate agent execution without making real API calls, will remove after agents are
+        # implemented and integrated
         if self.use_demo_invoke:
             invocation_result = self.agent_invoker.demoInvoke(agent, payload)
         else:
@@ -515,6 +159,9 @@ class UniversalOrchestrator:
         }
 
     def _select_agent(self, step: PlanStep) -> AgentDefinition | None:
+        """
+        Select an agent based on the step's requirements and preferences.
+        """
         if step.preferred_agent:
             preferred = self.registry.get(step.preferred_agent)
             if preferred is not None:
@@ -589,6 +236,9 @@ class UniversalOrchestrator:
 
     @staticmethod
     def _plan_to_dict(plan: ExecutionPlan) -> dict[str, Any]:
+        """
+        Convert an ExecutionPlan object into a dictionary format for easier serialization and logging.
+        """
         return {
             "goal": plan.goal,
             "steps": [
@@ -606,6 +256,9 @@ class UniversalOrchestrator:
 
     @staticmethod
     def _resolve_path(path_str: str) -> Path:
+        """
+        Resolve a file path to an absolute path, checking various locations.
+        """
         candidate = Path(path_str)
         if candidate.is_absolute() and candidate.exists():
             return candidate
@@ -619,6 +272,14 @@ class UniversalOrchestrator:
 
         raise FileNotFoundError(f"Unable to find file: {path_str}")
 
+
+# Todo : implement CLI interface to continously accept user queries until exit
+# Todo : Add logging db
+# Todo : add azure monitoring/functions for serverless deployment
+# Todo : Add plug and play for registry and agents
+# Todo : implement persistent memory layer for context retention across queries
+# Todo : Add support for multi-turn conversations
+# Todo : implement testplan and test cases for all components
 
 if __name__ == "__main__":
     orchestrator = UniversalOrchestrator()
