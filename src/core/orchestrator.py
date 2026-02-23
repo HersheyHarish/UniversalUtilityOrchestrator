@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,12 @@ import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
+# Required fields every agent entry must provide.
+_AGENT_REQUIRED_FIELDS = {"name", "description", "capabilities", "endpoint"}
+
+# Pattern enforced on agent names (mirrors agents.schema.json).
+_AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
 
 @dataclass
 class AgentDefinition:
@@ -18,6 +25,14 @@ class AgentDefinition:
     description: str
     capabilities: list[str]
     endpoint: str
+    version: str = "1.0.0"
+    status: str = "active"
+    tags: list[str] = field(default_factory=list)
+    health_check: str | None = None
+    timeout_seconds: int = 30
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "AgentDefinition":
@@ -26,7 +41,33 @@ class AgentDefinition:
             description=payload.get("description", ""),
             capabilities=payload.get("capabilities", []),
             endpoint=payload["endpoint"],
+            version=payload.get("version", "1.0.0"),
+            status=payload.get("status", "active"),
+            tags=payload.get("tags", []),
+            health_check=payload.get("health_check"),
+            timeout_seconds=int(payload.get("timeout_seconds", 30)),
+            input_schema=payload.get("input_schema", {}),
+            output_schema=payload.get("output_schema", {}),
+            metadata=payload.get("metadata", {}),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "name": self.name,
+            "version": self.version,
+            "status": self.status,
+            "description": self.description,
+            "capabilities": self.capabilities,
+            "tags": self.tags,
+            "endpoint": self.endpoint,
+            "timeout_seconds": self.timeout_seconds,
+            "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
+            "metadata": self.metadata,
+        }
+        if self.health_check is not None:
+            entry["health_check"] = self.health_check
+        return entry
 
 
 class AgentRegistry:
@@ -41,8 +82,102 @@ class AgentRegistry:
         agents = [AgentDefinition.from_dict(item) for item in raw.get("agents", [])]
         return cls(agents=agents, registry_path=path)
 
+    # ------------------------------------------------------------------
+    # Plug-and-play: add / remove / persist
+    # ------------------------------------------------------------------
+
+    def add_agent(self, agent_dict: dict[str, Any], *, persist: bool = True) -> AgentDefinition:
+        """Register a new agent from a plain dictionary and optionally save to disk.
+
+        Args:
+            agent_dict: Must contain at minimum ``name``, ``description``,
+                ``capabilities``, and ``endpoint``.  All other fields are
+                optional and will receive sensible defaults.
+            persist: When *True* (default) the updated registry is written back
+                to ``registry_path`` immediately so the change survives restarts.
+
+        Returns:
+            The newly created :class:`AgentDefinition`.
+
+        Raises:
+            ValueError: If required fields are missing, the name violates the
+                naming convention, the agent is a duplicate, or ``persist`` is
+                requested but no ``registry_path`` was set.
+        """
+        self._validate_agent_dict(agent_dict)
+
+        new_agent = AgentDefinition.from_dict(agent_dict)
+
+        if self.get(new_agent.name) is not None:
+            raise ValueError(
+                f"An agent named '{new_agent.name}' is already registered. "
+                "Use remove_agent() first or choose a different name."
+            )
+
+        today = str(date.today())
+        new_agent.metadata.setdefault("created_at", today)
+        new_agent.metadata.setdefault("updated_at", today)
+
+        self.agents.append(new_agent)
+        print(f"[Registry] Agent '{new_agent.name}' registered successfully.")
+
+        if persist:
+            self.save()
+
+        return new_agent
+
+    def remove_agent(self, agent_name: str, *, persist: bool = True) -> None:
+        """Unregister an agent by name and optionally save to disk.
+
+        Raises:
+            ValueError: If no agent with ``agent_name`` exists.
+        """
+        before = len(self.agents)
+        self.agents = [a for a in self.agents if a.name != agent_name]
+        if len(self.agents) == before:
+            raise ValueError(f"No agent named '{agent_name}' found in the registry.")
+        print(f"[Registry] Agent '{agent_name}' removed.")
+        if persist:
+            self.save()
+
+    def save(self) -> None:
+        """Persist the current registry state back to ``registry_path``.
+
+        Raises:
+            RuntimeError: If ``registry_path`` is not set.
+        """
+        if self.registry_path is None:
+            raise RuntimeError("Cannot save: registry_path is not set.")
+
+        existing_schema_ref: str | None = None
+        if self.registry_path.exists():
+            try:
+                with self.registry_path.open("r", encoding="utf-8") as fh:
+                    existing = json.load(fh)
+                existing_schema_ref = existing.get("$schema")
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        payload: dict[str, Any] = {"agents": [a.to_dict() for a in self.agents]}
+        if existing_schema_ref:
+            payload = {"$schema": existing_schema_ref, **payload}
+
+        with self.registry_path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=4)
+            fh.write("\n")
+
+        print(f"[Registry] Saved {len(self.agents)} agent(s) to {self.registry_path}.")
+
+    # ------------------------------------------------------------------
+    # Query helpers
+    # ------------------------------------------------------------------
+
     def get(self, agent_name: str) -> AgentDefinition | None:
         return next((agent for agent in self.agents if agent.name == agent_name), None)
+
+    def list_active(self) -> list[AgentDefinition]:
+        """Return only agents whose status is 'active'."""
+        return [a for a in self.agents if a.status == "active"]
 
     def list_brief(self) -> list[dict[str, Any]]:
         return [
@@ -50,24 +185,51 @@ class AgentRegistry:
                 "name": agent.name,
                 "description": agent.description,
                 "capabilities": agent.capabilities,
+                "tags": agent.tags,
+                "status": agent.status,
             }
-            for agent in self.agents
+            for agent in self.list_active()
         ]
 
     def select_by_capabilities(self, required_capabilities: list[str]) -> AgentDefinition | None:
-        if not self.agents:
+        active = self.list_active()
+        if not active:
             return None
         if not required_capabilities:
-            return self.agents[0]
+            return active[0]
 
         scored_agents: list[tuple[float, AgentDefinition]] = []
-        for agent in self.agents:
+        for agent in active:
             score = self._match_score(required_capabilities, agent.capabilities)
             scored_agents.append((score, agent))
 
         scored_agents.sort(key=lambda item: item[0], reverse=True)
         top_score, top_agent = scored_agents[0]
         return top_agent if top_score > 0 else None
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_agent_dict(agent_dict: dict[str, Any]) -> None:
+        missing = _AGENT_REQUIRED_FIELDS - set(agent_dict.keys())
+        if missing:
+            raise ValueError(f"Agent definition is missing required fields: {sorted(missing)}")
+
+        name = agent_dict["name"]
+        if not isinstance(name, str) or not _AGENT_NAME_RE.match(name):
+            raise ValueError(
+                f"Agent name '{name}' is invalid. "
+                "Names must start with a lowercase letter and contain only [a-z0-9_]."
+            )
+
+        if not isinstance(agent_dict.get("capabilities"), list) or not agent_dict["capabilities"]:
+            raise ValueError("'capabilities' must be a non-empty list of strings.")
+
+        status = agent_dict.get("status", "active")
+        if status not in {"active", "inactive", "maintenance"}:
+            raise ValueError(f"Invalid status '{status}'. Must be one of: active, inactive, maintenance.")
 
     def _match_score(self, required: list[str], offered: list[str]) -> float:
         offered_text = " ".join(offered).lower()
@@ -361,8 +523,9 @@ class AgentInvoker:
         self.timeout_seconds = timeout_seconds
 
     def invoke(self, agent: AgentDefinition, payload: dict[str, Any]) -> AgentInvocationResult:
+        timeout = agent.timeout_seconds if agent.timeout_seconds else self.timeout_seconds
         try:
-            response = requests.post(agent.endpoint, json=payload, timeout=self.timeout_seconds)
+            response = requests.post(agent.endpoint, json=payload, timeout=timeout)
             response.raise_for_status()
         except requests.RequestException as exc:
             return AgentInvocationResult(success=False, error=f"HTTP failure for {agent.name}: {exc}")
