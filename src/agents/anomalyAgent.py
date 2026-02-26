@@ -88,8 +88,7 @@ def _build_spike_response() -> dict[str, Any]:
 @app.post("/anomaly_detection_agent")
 async def anomaly_detection_agent(payload: OrchestratorPayload) -> dict[str, Any]:
     """
-    Orchestrator-facing endpoint. Accepts the orchestrator payload schema, but uses
-    hardcoded user/time window for this MVP as requested.
+    uses hardcoded user/time window for this version
     """
     try:
         spike_result = _build_spike_response()
@@ -109,10 +108,7 @@ async def anomaly_detection_agent(payload: OrchestratorPayload) -> dict[str, Any
 
 @app.post("/check-spikes")
 async def check_spikes(_: dict[str, Any] | None = None) -> dict[str, Any]:
-    """
-    Backward-compatible test endpoint matching the original prototype route.
-    Ignores request content and returns the same hardcoded-result payload.
-    """
+
     try:
         return _build_spike_response()
     except HTTPException:
