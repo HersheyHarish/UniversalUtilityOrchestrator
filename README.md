@@ -45,7 +45,7 @@ cd UniversalUtilityAgent
 chmod +x run_dev.sh
 ./run_dev.sh
 ```
-4. Once in interactive mode within docker, cd into project directorty and run orchestrator.py:
+4. Once in interactive mode within docker, cd into project directory and run orchestrator.py:
 ```bash
 cd UniversalUtilityAgent/src/core
 python3 orchestrator.py
