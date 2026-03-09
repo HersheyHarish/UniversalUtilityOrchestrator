@@ -583,6 +583,10 @@ class UniversalOrchestrator:
         return trace["final_answer"]
 
     def run_with_trace(self, user_query: str) -> dict[str, Any]:
+        """
+        Run the orchestration process with tracing enabled.
+        """
+        # Step 1: Validate input against guardrails
         guardrail_result = self.guardrails.validate(user_query)
         if not guardrail_result.allowed:
             return {
@@ -594,10 +598,12 @@ class UniversalOrchestrator:
                 "final_answer": f"Request blocked by input guardrails: {guardrail_result.reason}",
             }
 
+        # Step 2: Create execution plan using the planning service
         print("[Hub] Building execution plan...")
         plan = self.planner.create_plan(guardrail_result.sanitized_query, self.registry)
         execution_layers = self.dag_creator.build_execution_layers(plan)
 
+        # 3: Execute the plan layer by layer, invoking agents and collecting results
         step_results: dict[str, dict[str, Any]] = {}
         for layer_index, layer in enumerate(execution_layers, start=1):
             layer_steps = ", ".join(step.id for step in layer)
@@ -614,7 +620,7 @@ class UniversalOrchestrator:
                         "steps": step_results,
                         "final_answer": self._summarize_failure(step, step_result),
                     }
-
+        # 4: Synthesize final answer from execution trace
         final_answer = self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
         return {
             "status": "completed",
@@ -629,6 +635,9 @@ class UniversalOrchestrator:
         user_query: str,
         previous_step_results: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
+        """
+        Execute a single step of the plan by invoking the appropriate agent.
+        """
         agent = self._select_agent(step)
         if agent is None:
             return {
@@ -657,6 +666,8 @@ class UniversalOrchestrator:
             },
         }
 
+        #using demo_invoke to simulate agent execution without making real API calls, will remove after agents are
+        # implemented and integrated
         if self.use_demo_invoke:
             invocation_result = self.agent_invoker.demoInvoke(agent, payload)
         else:
@@ -678,6 +689,9 @@ class UniversalOrchestrator:
         }
 
     def _select_agent(self, step: PlanStep) -> AgentDefinition | None:
+        """
+        Select an agent based on the step's requirements and preferences.
+        """
         if step.preferred_agent:
             preferred = self.registry.get(step.preferred_agent)
             if preferred is not None:
@@ -752,6 +766,9 @@ class UniversalOrchestrator:
 
     @staticmethod
     def _plan_to_dict(plan: ExecutionPlan) -> dict[str, Any]:
+        """
+        Convert an ExecutionPlan object into a dictionary format for easier serialization and logging.
+        """
         return {
             "goal": plan.goal,
             "steps": [
@@ -769,6 +786,9 @@ class UniversalOrchestrator:
 
     @staticmethod
     def _resolve_path(path_str: str) -> Path:
+        """
+        Resolve a file path to an absolute path, checking various locations.
+        """
         candidate = Path(path_str)
         if candidate.is_absolute() and candidate.exists():
             return candidate
@@ -782,6 +802,14 @@ class UniversalOrchestrator:
 
         raise FileNotFoundError(f"Unable to find file: {path_str}")
 
+
+# Todo : implement CLI interface to continously accept user queries until exit
+# Todo : Add logging db
+# Todo : add azure monitoring/functions for serverless deployment
+# Todo : Add plug and play for registry and agents
+# Todo : implement persistent memory layer for context retention across queries
+# Todo : Add support for multi-turn conversations
+# Todo : implement testplan and test cases for all components
 
 if __name__ == "__main__":
     orchestrator = UniversalOrchestrator()
