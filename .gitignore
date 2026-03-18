@@ -82,3 +82,6 @@ kubeconfig
 *.bak
 *.tmp
 *.orig
+
+# Local anomaly data
+src/data/*.csv
