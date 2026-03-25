@@ -26,3 +26,7 @@ orchestration:
   halt_on_step_failure: true
   use_demo_invoke: true
   log_level: "DEBUG"
+
+evaluation:
+  enabled: true
+  strict_mode: false
