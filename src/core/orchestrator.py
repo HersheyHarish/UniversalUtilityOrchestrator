@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 import yaml
+from evaluator import EvaluationService
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
@@ -549,7 +550,6 @@ class AgentInvoker:
         }
         return AgentInvocationResult(success=True, output=demo_output)
 
-
 class UniversalOrchestrator:
     def __init__(self, registry_path: str = "agents.json", config_path: str = "config.yaml"):
         config_file = self._resolve_path(config_path)
@@ -570,6 +570,7 @@ class UniversalOrchestrator:
         guardrail_cfg = self.config.get("guardrails", {})
         planning_cfg = self.config.get("planning", {})
         orchestration_cfg = self.config.get("orchestration", {})
+        evaluation_cfg = self.config.get("evaluation", {})
 
         self.guardrails = InputGuardrails(guardrail_cfg)
         self.planner = PlanningService(self.model, max_steps=int(planning_cfg.get("max_steps", 6)))
@@ -577,6 +578,10 @@ class UniversalOrchestrator:
         self.agent_invoker = AgentInvoker(timeout_seconds=int(orchestration_cfg.get("timeout_seconds", 30)))
         self.halt_on_step_failure = bool(orchestration_cfg.get("halt_on_step_failure", True))
         self.use_demo_invoke = bool(orchestration_cfg.get("use_demo_invoke", False))
+
+        self.evaluation_enabled = bool(evaluation_cfg.get("enabled", False))
+        self.evaluation_strict_mode = bool(evaluation_cfg.get("strict_mode", False))
+        self.evaluation_service = EvaluationService(self.model) if self.evaluation_enabled else None
 
     def run(self, user_query: str) -> str:
         trace = self.run_with_trace(user_query)
@@ -614,19 +619,73 @@ class UniversalOrchestrator:
                 step_results[step.id] = step_result
 
                 if self.halt_on_step_failure and step_result["status"] == "failed":
+                    plan_dict = self._plan_to_dict(plan)
+                    final_answer = self._summarize_failure(step, step_result)
+                    evaluation = self._evaluate_trace(
+                        user_query=guardrail_result.sanitized_query,
+                        plan_dict=plan_dict,
+                        step_results=step_results,
+                        final_answer=final_answer,
+                    )
                     return {
                         "status": "failed",
-                        "plan": self._plan_to_dict(plan),
+                        "plan": plan_dict,
                         "steps": step_results,
-                        "final_answer": self._summarize_failure(step, step_result),
+                        "final_answer": final_answer,
+                        "evaluation": evaluation,
                     }
         # 4: Synthesize final answer from execution trace
+        plan_dict = self._plan_to_dict(plan)
         final_answer = self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
+        evaluation = self._evaluate_trace(
+            user_query=guardrail_result.sanitized_query,
+            plan_dict=plan_dict,
+            step_results=step_results,
+            final_answer=final_answer,
+        )
+
+        status = "completed"
+        if (
+            self.evaluation_strict_mode
+            and evaluation is not None
+            and not evaluation.get("goal_met", False)
+        ):
+            status = "failed_evaluation"
+
         return {
-            "status": "completed",
-            "plan": self._plan_to_dict(plan),
+            "status": status,
+            "plan": plan_dict,
             "steps": step_results,
             "final_answer": final_answer,
+            "evaluation": evaluation,
+        }
+
+    def _evaluate_trace(
+        self,
+        user_query: str,
+        plan_dict: dict[str, Any],
+        step_results: dict[str, dict[str, Any]],
+        final_answer: str,
+    ) -> dict[str, Any] | None:
+        """
+        Evaluate a run trace and return a serialized evaluation payload.
+        Returns None when evaluation is disabled.
+        """
+        if not self.evaluation_enabled or self.evaluation_service is None:
+            return None
+
+        result = self.evaluation_service.evaluate(
+            user_query=user_query,
+            plan_dict=plan_dict,
+            step_results=step_results,
+            final_answer=final_answer,
+        )
+        return {
+            "goal_met": result.goal_met,
+            "score": result.score,
+            "summary": result.summary,
+            "issues": result.issues,
+            "retry_recommended": result.retry_recommended,
         }
 
     def _execute_step(
