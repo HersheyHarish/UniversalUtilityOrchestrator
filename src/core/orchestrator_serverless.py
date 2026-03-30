@@ -73,8 +73,8 @@ def _extract_query(payload: dict[str, Any]) -> str:
     return ""
 
 
-def _run_orchestration(user_query: str, source: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    trace = _get_orchestrator().run_with_trace(user_query)
+async def _run_orchestration(user_query: str, source: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    trace = await _get_orchestrator().run_with_trace(user_query)
     return {
         "source": source,
         "query": user_query,
@@ -87,7 +87,7 @@ def _run_orchestration(user_query: str, source: str, metadata: dict[str, Any] | 
 
 @app.function_name(name="orchestrator_http_ingress")
 @app.route(route="orchestrator/run", methods=["POST"])
-def orchestrator_http_ingress(req: func.HttpRequest) -> func.HttpResponse:
+async def orchestrator_http_ingress(req: func.HttpRequest) -> func.HttpResponse:
     payload: dict[str, Any] = {}
     try:
         payload = req.get_json()
@@ -113,7 +113,7 @@ def orchestrator_http_ingress(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     try:
-        result = _run_orchestration(user_query=user_query, source="http")
+        result = await _run_orchestration(user_query=user_query, source="http")
     except Exception as exc:  # pragma: no cover - runtime safety for serverless host
         LOGGER.exception("HTTP orchestration failed")
         return func.HttpResponse(
@@ -138,7 +138,7 @@ def orchestrator_http_ingress(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.function_name(name="orchestrator_eventgrid_ingress")
 @app.event_grid_trigger(arg_name="event")
-def orchestrator_eventgrid_ingress(event: func.EventGridEvent) -> None:
+async def orchestrator_eventgrid_ingress(event: func.EventGridEvent) -> None:
     try:
         event_payload = event.get_json()
         if not isinstance(event_payload, dict):
@@ -164,7 +164,7 @@ def orchestrator_eventgrid_ingress(event: func.EventGridEvent) -> None:
     }
 
     try:
-        result = _run_orchestration(user_query=user_query, source="event_grid", metadata=metadata)
+        result = await _run_orchestration(user_query=user_query, source="event_grid", metadata=metadata)
         LOGGER.info(
             "EventGrid orchestration complete. id=%s status=%s",
             metadata.get("event_id"),
