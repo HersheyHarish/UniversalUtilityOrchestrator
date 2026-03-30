@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import re
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import requests
 import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
+from langchain_openai import AzureChatOpenAI
 
 from agentRegistry import AgentDefinition, AgentRegistry
 from inputGuard import GuardrailResult, InputGuardrails
@@ -31,9 +31,11 @@ class UniversalOrchestrator:
         self.registry = AgentRegistry.load(registry_file)
 
         llm_cfg = self.config.get("llm", {})
-        self.model = ChatOllama(
-            model=llm_cfg.get("model", "llama3.1:8b"),
-            base_url=llm_cfg.get("base_url", "http://host.docker.internal:11434"),
+        # Use AzureOpenAI from environment matching standard names:
+        # AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION
+        model_name = llm_cfg.get("model", "gpt-4o")
+        self.model = AzureChatOpenAI(
+            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", model_name),
             temperature=float(llm_cfg.get("temperature", 0.4)),
         )
 
@@ -48,13 +50,13 @@ class UniversalOrchestrator:
         self.halt_on_step_failure = bool(orchestration_cfg.get("halt_on_step_failure", True))
         self.use_demo_invoke = bool(orchestration_cfg.get("use_demo_invoke", False))
 
-    def run(self, user_query: str) -> str:
-        trace = self.run_with_trace(user_query)
+    async def run(self, user_query: str) -> str:
+        trace = await self.run_with_trace(user_query)
         return trace["final_answer"]
 
-    def run_with_trace(self, user_query: str) -> dict[str, Any]:
+    async def run_with_trace(self, user_query: str) -> dict[str, Any]:
         """
-        Run the orchestration process with tracing enabled.
+        Run the orchestration process with tracing enabled asynchronously.
         """
         # Step 1: Validate input against guardrails
         guardrail_result = self.guardrails.validate(user_query)
@@ -70,7 +72,7 @@ class UniversalOrchestrator:
 
         # Step 2: Create execution plan using the planning service
         print("[Hub] Building execution plan...")
-        plan = self.planner.create_plan(guardrail_result.sanitized_query, self.registry)
+        plan = await self.planner.create_plan(guardrail_result.sanitized_query, self.registry)
         execution_layers = self.dag_creator.build_execution_layers(plan)
 
         # 3: Execute the plan layer by layer, invoking agents and collecting results
@@ -79,8 +81,14 @@ class UniversalOrchestrator:
             layer_steps = ", ".join(step.id for step in layer)
             print(f"[Hub] Executing layer {layer_index}: {layer_steps}")
 
-            for step in layer:
-                step_result = self._execute_step(step, guardrail_result.sanitized_query, step_results)
+            # Execute steps in the current layer concurrently
+            tasks = [
+                self._execute_step(step, guardrail_result.sanitized_query, step_results)
+                for step in layer
+            ]
+            layer_results = await asyncio.gather(*tasks)
+
+            for step, step_result in zip(layer, layer_results):
                 step_results[step.id] = step_result
 
                 if self.halt_on_step_failure and step_result["status"] == "failed":
@@ -91,7 +99,7 @@ class UniversalOrchestrator:
                         "final_answer": self._summarize_failure(step, step_result),
                     }
         # 4: Synthesize final answer from execution trace
-        final_answer = self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
+        final_answer = await self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
         return {
             "status": "completed",
             "plan": self._plan_to_dict(plan),
@@ -99,7 +107,7 @@ class UniversalOrchestrator:
             "final_answer": final_answer,
         }
 
-    def _execute_step(
+    async def _execute_step(
         self,
         step: PlanStep,
         user_query: str,
@@ -139,9 +147,9 @@ class UniversalOrchestrator:
         #using demo_invoke to simulate agent execution without making real API calls, will remove after agents are
         # implemented and integrated
         if self.use_demo_invoke:
-            invocation_result = self.agent_invoker.demoInvoke(agent, payload)
+            invocation_result = await self.agent_invoker.demoInvoke(agent, payload)
         else:
-            invocation_result = self.agent_invoker.invoke(agent, payload)
+            invocation_result = await self.agent_invoker.invoke(agent, payload)
 
         if not invocation_result.success:
             return {
@@ -173,7 +181,7 @@ class UniversalOrchestrator:
 
         return self.registry.select_by_capabilities([step.objective])
 
-    def _synthesize_final_answer(
+    async def _synthesize_final_answer(
         self,
         user_query: str,
         plan: ExecutionPlan,
@@ -197,7 +205,7 @@ class UniversalOrchestrator:
         ]
 
         try:
-            response = self.model.invoke(synthesis_prompt).content.strip()
+            response = (await self.model.ainvoke(synthesis_prompt)).content.strip()
             if response:
                 return response
         except Exception as exc:  # pragma: no cover - protective fallback
@@ -283,4 +291,4 @@ class UniversalOrchestrator:
 
 if __name__ == "__main__":
     orchestrator = UniversalOrchestrator()
-    print(orchestrator.run("I think my bill is too high this month, can you check it?"))
+    print(asyncio.run(orchestrator.run("I think my bill is too high this month, can you check it?")))

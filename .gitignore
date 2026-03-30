@@ -82,3 +82,5 @@ kubeconfig
 *.bak
 *.tmp
 *.orig
+
+.python_packages

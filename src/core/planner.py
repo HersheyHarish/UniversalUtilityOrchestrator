@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
+from langchain_core.language_models.chat_models import BaseChatModel
+from agentRegistry import AgentRegistry
 
 # Class that represents a single step in the execution plan. 
 # Each step has an ID, an objective, 
@@ -35,14 +36,14 @@ class ExecutionPlan:
 # It builds a prompt with constraints and parses the JSON response into an ExecutionPlan object. 
 # If parsing fails, it falls back to a simple one-step plan.
 class PlanningService:
-    def __init__(self, model: ChatOllama, max_steps: int = 6):
+    def __init__(self, model: BaseChatModel, max_steps: int = 6):
         self.model = model
         self.max_steps = max_steps
 
-    def create_plan(self, user_query: str, registry: AgentRegistry) -> ExecutionPlan:
+    async def create_plan(self, user_query: str, registry: AgentRegistry) -> ExecutionPlan:
         planning_prompt = self._build_prompt(user_query, registry)
         try:
-            raw = self.model.invoke(planning_prompt).content
+            raw = (await self.model.ainvoke(planning_prompt)).content
             return self._parse_plan(raw)
         except Exception as exc:  # pragma: no cover - protective fallback
             print(f"[Planner] Failed to build plan with LLM: {exc}")
