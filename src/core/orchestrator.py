@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import AzureChatOpenAI
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
 from agentRegistry import AgentDefinition, AgentRegistry
 from inputGuard import GuardrailResult, InputGuardrails
@@ -31,13 +31,33 @@ class UniversalOrchestrator:
         self.registry = AgentRegistry.load(registry_file)
 
         llm_cfg = self.config.get("llm", {})
-        # Use AzureOpenAI from environment matching standard names:
-        # AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION
-        model_name = llm_cfg.get("model", "gpt-4o")
-        self.model = AzureChatOpenAI(
-            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", model_name),
-            temperature=float(llm_cfg.get("temperature", 0.4)),
-        )
+        
+        # Pull model defaults and explicitly map Azure OpenAI environment variables
+        # This supports custom naming like 'AZURE_OPENAI_KEY' or 'AZURE_OPENAI_DEPLOYMENT'
+        model_name = llm_cfg.get("model", "gpt-5.4-nano")
+        azure_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_KEY")
+        azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT") or model_name
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        
+        # Azure Foundry provides OpenAI Standard compatible endpoints (usually ending in /v1 or containing /v1)
+        # These endpoints reject the 'api-version' parameter used by classic Azure OpenAI instances.
+        if azure_endpoint and "/v1" in azure_endpoint:
+            # For Foundry standard Endpoints, we use standard ChatOpenAI mapping
+            self.model = ChatOpenAI(
+                api_key=azure_key,
+                base_url=azure_endpoint,
+                model=model_name,
+                temperature=float(llm_cfg.get("temperature", 0.4)),
+            )
+        else:
+            api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+            self.model = AzureChatOpenAI(
+                api_key=azure_key,
+                azure_endpoint=azure_endpoint,
+                azure_deployment=azure_deployment,
+                api_version=api_version,
+                temperature=float(llm_cfg.get("temperature", 0.4)),
+            )
 
         guardrail_cfg = self.config.get("guardrails", {})
         planning_cfg = self.config.get("planning", {})
@@ -90,7 +110,6 @@ class UniversalOrchestrator:
 
             for step, step_result in zip(layer, layer_results):
                 step_results[step.id] = step_result
-
                 if self.halt_on_step_failure and step_result["status"] == "failed":
                     return {
                         "status": "failed",
