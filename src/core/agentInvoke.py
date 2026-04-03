@@ -26,9 +26,16 @@ class AgentInvoker:
         """
         Invoke the agent endpoint with the given payload and return the result asynchronously.
         """
+        import os
+        headers = {}
+        # Fetch an API key based on the agent's name (e.g. AGENT_KEY_PYTHONEXECUTOR)
+        api_key = os.getenv(f"AGENT_KEY_{agent.name.upper().replace(' ', '_')}")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.post(agent.endpoint, json=payload)
+                response = await client.post(agent.endpoint, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.RequestError as exc:
             return AgentInvocationResult(success=False, error=f"HTTP request error for {agent.name}: {exc}")

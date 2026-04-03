@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import uuid
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,11 @@ from inputGuard import GuardrailResult, InputGuardrails
 from planner import ExecutionPlan, PlanStep, PlanningService
 from dagCreator import DAGCreator
 from agentInvoke import AgentInvocationResult, AgentInvoker
+from memory import CosmosDBMemoryStore
+from telemetry import get_tracer
+
+logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
 
 # Class responsible for orchestrating the overall process. 
 # It integrates the guardrails, planning service, DAG creation, 
@@ -29,6 +36,7 @@ class UniversalOrchestrator:
             self.config = yaml.safe_load(handle) or {}
 
         self.registry = AgentRegistry.load(registry_file)
+        self.memory = CosmosDBMemoryStore()
 
         llm_cfg = self.config.get("llm", {})
         
@@ -70,61 +78,78 @@ class UniversalOrchestrator:
         self.halt_on_step_failure = bool(orchestration_cfg.get("halt_on_step_failure", True))
         self.use_demo_invoke = bool(orchestration_cfg.get("use_demo_invoke", False))
 
-    async def run(self, user_query: str) -> str:
-        trace = await self.run_with_trace(user_query)
+    async def run(self, user_query: str, session_id: str | None = None) -> str:
+        trace = await self.run_with_trace(user_query, session_id)
         return trace["final_answer"]
 
-    async def run_with_trace(self, user_query: str) -> dict[str, Any]:
+    async def run_with_trace(self, user_query: str, session_id: str | None = None) -> dict[str, Any]:
         """
         Run the orchestration process with tracing enabled asynchronously.
         """
-        # Step 1: Validate input against guardrails
-        guardrail_result = self.guardrails.validate(user_query)
-        if not guardrail_result.allowed:
-            return {
-                "status": "blocked",
-                "guardrails": {
-                    "reason": guardrail_result.reason,
-                    "risk_flags": guardrail_result.risk_flags,
-                },
-                "final_answer": f"Request blocked by input guardrails: {guardrail_result.reason}",
+        session_id = session_id or str(uuid.uuid4())
+        
+        with tracer.start_as_current_span("orchestration_run") as span:
+            span.set_attribute("session_id", session_id)
+            
+            # Step 1: Validate input against guardrails
+            guardrail_result = self.guardrails.validate(user_query)
+            if not guardrail_result.allowed:
+                return {
+                    "status": "blocked",
+                    "guardrails": {
+                        "reason": guardrail_result.reason,
+                        "risk_flags": guardrail_result.risk_flags,
+                    },
+                    "final_answer": f"Request blocked by input guardrails: {guardrail_result.reason}",
+                    "session_id": session_id,
+                }
+
+            # Step 2: Create execution plan using the planning service
+            logger.info("[Hub] Building execution plan...")
+            with tracer.start_as_current_span("build_plan"):
+                plan = await self.planner.create_plan(guardrail_result.sanitized_query, self.registry)
+                execution_layers = self.dag_creator.build_execution_layers(plan)
+
+            # 3: Execute the plan layer by layer, invoking agents and collecting results
+            step_results: dict[str, dict[str, Any]] = {}
+            for layer_index, layer in enumerate(execution_layers, start=1):
+                layer_steps = ", ".join(step.id for step in layer)
+                logger.info(f"[Hub] Executing layer {layer_index}: {layer_steps}")
+
+                with tracer.start_as_current_span(f"execute_layer_{layer_index}"):
+                    # Execute steps in the current layer concurrently
+                    tasks = [
+                        self._execute_step(step, guardrail_result.sanitized_query, step_results)
+                        for step in layer
+                    ]
+                    layer_results = await asyncio.gather(*tasks)
+
+                    for step, step_result in zip(layer, layer_results):
+                        step_results[step.id] = step_result
+                        if self.halt_on_step_failure and step_result["status"] == "failed":
+                            result_val = {
+                                "status": "failed",
+                                "plan": plan.model_dump(),
+                                "steps": step_results,
+                                "final_answer": self._summarize_failure(step, step_result),
+                                "session_id": session_id,
+                            }
+                            await self.memory.save_trace(session_id, result_val)
+                            return result_val
+            
+            # 4: Synthesize final answer from execution trace
+            with tracer.start_as_current_span("synthesize_answer"):
+                final_answer = await self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
+            
+            result_val = {
+                "status": "completed",
+                "plan": plan.model_dump(),
+                "steps": step_results,
+                "final_answer": final_answer,
+                "session_id": session_id,
             }
-
-        # Step 2: Create execution plan using the planning service
-        print("[Hub] Building execution plan...")
-        plan = await self.planner.create_plan(guardrail_result.sanitized_query, self.registry)
-        execution_layers = self.dag_creator.build_execution_layers(plan)
-
-        # 3: Execute the plan layer by layer, invoking agents and collecting results
-        step_results: dict[str, dict[str, Any]] = {}
-        for layer_index, layer in enumerate(execution_layers, start=1):
-            layer_steps = ", ".join(step.id for step in layer)
-            print(f"[Hub] Executing layer {layer_index}: {layer_steps}")
-
-            # Execute steps in the current layer concurrently
-            tasks = [
-                self._execute_step(step, guardrail_result.sanitized_query, step_results)
-                for step in layer
-            ]
-            layer_results = await asyncio.gather(*tasks)
-
-            for step, step_result in zip(layer, layer_results):
-                step_results[step.id] = step_result
-                if self.halt_on_step_failure and step_result["status"] == "failed":
-                    return {
-                        "status": "failed",
-                        "plan": self._plan_to_dict(plan),
-                        "steps": step_results,
-                        "final_answer": self._summarize_failure(step, step_result),
-                    }
-        # 4: Synthesize final answer from execution trace
-        final_answer = await self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
-        return {
-            "status": "completed",
-            "plan": self._plan_to_dict(plan),
-            "steps": step_results,
-            "final_answer": final_answer,
-        }
+            await self.memory.save_trace(session_id, result_val)
+            return result_val
 
     async def _execute_step(
         self,
@@ -135,55 +160,60 @@ class UniversalOrchestrator:
         """
         Execute a single step of the plan by invoking the appropriate agent.
         """
-        agent = self._select_agent(step)
-        if agent is None:
-            return {
-                "status": "failed",
-                "agent": None,
-                "objective": step.objective,
-                "error": "No registered agent matches this step's capabilities.",
+        with tracer.start_as_current_span(f"execute_step_{step.id}") as span:
+            agent = self._select_agent(step)
+            if agent is None:
+                span.set_attribute("status", "failed")
+                return {
+                    "status": "failed",
+                    "agent": None,
+                    "objective": step.objective,
+                    "error": "No registered agent matches this step's capabilities.",
+                }
+
+            span.set_attribute("agent.name", agent.name)
+            
+            dependency_context = {
+                dep: previous_step_results.get(dep, {}).get("output") for dep in step.dependencies
             }
 
-        dependency_context = {
-            dep: previous_step_results.get(dep, {}).get("output") for dep in step.dependencies
-        }
+            payload = {
+                "query": user_query,
+                "step": {
+                    "id": step.id,
+                    "objective": step.objective,
+                    "required_capabilities": step.required_capabilities,
+                    "dependencies": step.dependencies,
+                    "output_key": step.output_key,
+                },
+                "context": {
+                    "dependency_outputs": dependency_context,
+                    "all_step_results": previous_step_results,
+                },
+            }
 
-        payload = {
-            "query": user_query,
-            "step": {
-                "id": step.id,
-                "objective": step.objective,
-                "required_capabilities": step.required_capabilities,
-                "dependencies": step.dependencies,
-                "output_key": step.output_key,
-            },
-            "context": {
-                "dependency_outputs": dependency_context,
-                "all_step_results": previous_step_results,
-            },
-        }
+            if self.use_demo_invoke:
+                invocation_result = await self.agent_invoker.demoInvoke(agent, payload)
+            else:
+                invocation_result = await self.agent_invoker.invoke(agent, payload)
 
-        #using demo_invoke to simulate agent execution without making real API calls, will remove after agents are
-        # implemented and integrated
-        if self.use_demo_invoke:
-            invocation_result = await self.agent_invoker.demoInvoke(agent, payload)
-        else:
-            invocation_result = await self.agent_invoker.invoke(agent, payload)
+            if not invocation_result.success:
+                span.set_attribute("status", "failed")
+                span.set_attribute("error", invocation_result.error)
+                return {
+                    "status": "failed",
+                    "agent": agent.name,
+                    "objective": step.objective,
+                    "error": invocation_result.error,
+                }
 
-        if not invocation_result.success:
+            span.set_attribute("status", "completed")
             return {
-                "status": "failed",
+                "status": "completed",
                 "agent": agent.name,
                 "objective": step.objective,
-                "error": invocation_result.error,
+                "output": invocation_result.output,
             }
-
-        return {
-            "status": "completed",
-            "agent": agent.name,
-            "objective": step.objective,
-            "output": invocation_result.output,
-        }
 
     def _select_agent(self, step: PlanStep) -> AgentDefinition | None:
         """
@@ -217,7 +247,7 @@ class UniversalOrchestrator:
             HumanMessage(
                 content=(
                     f"User query: {user_query}\n\n"
-                    f"Plan: {json.dumps(self._plan_to_dict(plan), indent=2)}\n\n"
+                    f"Plan: {json.dumps(plan.model_dump(), indent=2)}\n\n"
                     f"Step results: {json.dumps(step_results, indent=2, default=str)}"
                 )
             ),
@@ -228,7 +258,7 @@ class UniversalOrchestrator:
             if response:
                 return response
         except Exception as exc:  # pragma: no cover - protective fallback
-            print(f"[Hub] Final synthesis failed: {exc}")
+            logger.warning(f"[Hub] Final synthesis failed: {exc}")
 
         return self._fallback_summary(step_results)
 
@@ -262,26 +292,6 @@ class UniversalOrchestrator:
         return "\n".join(summary_parts) if summary_parts else "No execution output was produced."
 
     @staticmethod
-    def _plan_to_dict(plan: ExecutionPlan) -> dict[str, Any]:
-        """
-        Convert an ExecutionPlan object into a dictionary format for easier serialization and logging.
-        """
-        return {
-            "goal": plan.goal,
-            "steps": [
-                {
-                    "id": step.id,
-                    "objective": step.objective,
-                    "required_capabilities": step.required_capabilities,
-                    "dependencies": step.dependencies,
-                    "preferred_agent": step.preferred_agent,
-                    "output_key": step.output_key,
-                }
-                for step in plan.steps
-            ],
-        }
-
-    @staticmethod
     def _resolve_path(path_str: str) -> Path:
         """
         Resolve a file path to an absolute path, checking various locations.
@@ -300,14 +310,8 @@ class UniversalOrchestrator:
         raise FileNotFoundError(f"Unable to find file: {path_str}")
 
 
-# Todo : implement CLI interface to continously accept user queries until exit
-# Todo : Add logging db
-# Todo : add azure monitoring/functions for serverless deployment
-# Todo : Add plug and play for registry and agents
-# Todo : implement persistent memory layer for context retention across queries
-# Todo : Add support for multi-turn conversations
-# Todo : implement testplan and test cases for all components
-
 if __name__ == "__main__":
+    from telemetry import setup_telemetry
+    setup_telemetry()
     orchestrator = UniversalOrchestrator()
     print(asyncio.run(orchestrator.run("I think my bill is too high this month, can you check it?")))

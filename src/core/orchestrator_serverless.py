@@ -14,6 +14,9 @@ if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
 
 from orchestrator import UniversalOrchestrator
+from telemetry import setup_telemetry
+
+setup_telemetry()
 
 LOGGER = logging.getLogger("orchestrator_serverless")
 
@@ -73,11 +76,12 @@ def _extract_query(payload: dict[str, Any]) -> str:
     return ""
 
 
-async def _run_orchestration(user_query: str, source: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    trace = await _get_orchestrator().run_with_trace(user_query)
+async def _run_orchestration(user_query: str, source: str, session_id: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    trace = await _get_orchestrator().run_with_trace(user_query, session_id)
     return {
         "source": source,
         "query": user_query,
+        "session_id": trace.get("session_id"),
         "status": trace.get("status"),
         "final_answer": trace.get("final_answer"),
         "trace": trace,
@@ -112,8 +116,12 @@ async def orchestrator_http_ingress(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
         )
 
+    session_id = payload.get("session_id")
+    if not session_id:
+        session_id = req.headers.get("x-session-id")
+
     try:
-        result = await _run_orchestration(user_query=user_query, source="http")
+        result = await _run_orchestration(user_query=user_query, source="http", session_id=session_id)
     except Exception as exc:  # pragma: no cover - runtime safety for serverless host
         LOGGER.exception("HTTP orchestration failed")
         return func.HttpResponse(
@@ -163,12 +171,15 @@ async def orchestrator_eventgrid_ingress(event: func.EventGridEvent) -> None:
         "topic": getattr(event, "topic", None),
     }
 
+    session_id = event_payload.get("session_id")
+
     try:
-        result = await _run_orchestration(user_query=user_query, source="event_grid", metadata=metadata)
+        result = await _run_orchestration(user_query=user_query, source="event_grid", session_id=session_id, metadata=metadata)
         LOGGER.info(
-            "EventGrid orchestration complete. id=%s status=%s",
+            "EventGrid orchestration complete. id=%s status=%s session_id=%s",
             metadata.get("event_id"),
             result.get("status"),
+            result.get("session_id"),
         )
     except Exception:
         LOGGER.exception(
