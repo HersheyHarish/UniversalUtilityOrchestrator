@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from calendar import monthrange
 from datetime import datetime
@@ -123,6 +124,7 @@ def resolve_billing_inputs(payload: BillingPayload) -> dict[str, Any]:
 def try_llm_summary(query: str, facts: dict[str, Any], citations: list[dict[str, Any]]) -> str | None:
     """Ask Ollama for a concise explanation, or return None on any failure."""
     model_name = "llama3.1:8b"
+    ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
     system_prompt = (
         "You are a billing explanation assistant. "
@@ -143,7 +145,7 @@ def try_llm_summary(query: str, facts: dict[str, Any], citations: list[dict[str,
         "Avoid headings, markdown bullets, and vague phrases like 'review your account activity' or 'contact customer service' unless a dispute policy clearly applies."
     )
     try:
-        llm = ChatOllama(model=model_name, temperature=0)
+        llm = ChatOllama(model=model_name, temperature=0, base_url=ollama_base_url)
         response = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
         return response.content.strip() if isinstance(response.content, str) else None
     except Exception:
