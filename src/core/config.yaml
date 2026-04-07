@@ -1,13 +1,12 @@
 llm:
-  model: "llama3.1:8b"
+  # The values are mostly fetched from Environment Variables like AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, etc.
+  model: "gpt-5.4-nano"
   temperature: 0.4
   max_tokens: 2048
   top_p: 0.9
-  base_url: "http://host.docker.internal:11434"
   frequency_penalty: 0.0
   presence_penalty: 0.0
   stop: ["\n\n"]
-  api_key: "here"  
 
 guardrails:
   min_input_chars: 3
@@ -24,9 +23,5 @@ planning:
 orchestration:
   timeout_seconds: 30
   halt_on_step_failure: true
-  use_demo_invoke: true
-  log_level: "DEBUG"
-
-evaluation:
-  enabled: true
-  strict_mode: false
+  use_demo_invoke: false
+  log_level: "INFO"
