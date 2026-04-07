@@ -85,3 +85,6 @@ kubeconfig
 
 # Local anomaly data
 src/data/*.csv
+
+# Generated billing retrieval cache
+src/data/vector_store/
