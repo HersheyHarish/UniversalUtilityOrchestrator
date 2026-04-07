@@ -85,3 +85,5 @@ kubeconfig
 *.orig
 
 .python_packages
+# Local anomaly data
+src/data/*.csv

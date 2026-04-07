@@ -6,10 +6,12 @@ import os
 import uuid
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import yaml
+from evaluator import EvaluationService
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
@@ -24,9 +26,6 @@ from telemetry import get_tracer
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 
-# Class responsible for orchestrating the overall process. 
-# It integrates the guardrails, planning service, DAG creation, 
-# and agent invocation to execute the plan and synthesize a final answer for the user.
 class UniversalOrchestrator:
     def __init__(self, registry_path: str = "agents.json", config_path: str = "config.yaml"):
         config_file = self._resolve_path(config_path)
@@ -70,6 +69,7 @@ class UniversalOrchestrator:
         guardrail_cfg = self.config.get("guardrails", {})
         planning_cfg = self.config.get("planning", {})
         orchestration_cfg = self.config.get("orchestration", {})
+        evaluation_cfg = self.config.get("evaluation", {})
 
         self.guardrails = InputGuardrails(guardrail_cfg)
         self.planner = PlanningService(self.model, max_steps=int(planning_cfg.get("max_steps", 6)))

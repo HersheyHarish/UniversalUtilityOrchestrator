@@ -1,4 +1,4 @@
-The Universal Utility Orchestrator is an autonomous orchestration layer to sequence agents to achieve a goal. It is designed to be flexible and adaptable, allowing it to work with a wide range of agents and tasks. 
+The Universal Utility Orchestrator is an autonomous orchestration layer to sequence agents to achieve a goal. It is designed to be flexible and adaptable, allowing it to work with a wide range of agents and tasks.
 
 ## Orchestration Flow
 The orchestrator now runs a full pipeline:
