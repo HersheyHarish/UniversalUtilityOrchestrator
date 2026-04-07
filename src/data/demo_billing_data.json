@@ -1,0 +1,165 @@
+{
+  "accounts": {
+    "CUST-1001": {
+      "customer_id": "CUST-1001",
+      "name": "Alice Johnson",
+      "plan": {
+        "name": "Residential Saver 12",
+        "base_charge": 180.0,
+        "baseline_kwh": 1000,
+        "overage_rate": 0.14
+      },
+      "loyalty_months": 18,
+      "autopay": true,
+      "paperless": true,
+      "solar_export_kwh": 0,
+      "medical_exemption": false,
+      "tax_exempt": false
+    },
+    "CUST-1002": {
+      "customer_id": "CUST-1002",
+      "name": "Bob Martinez",
+      "plan": {
+        "name": "Residential Saver 12",
+        "base_charge": 180.0,
+        "baseline_kwh": 1000,
+        "overage_rate": 0.14
+      },
+      "loyalty_months": 6,
+      "autopay": false,
+      "paperless": false,
+      "solar_export_kwh": 0,
+      "medical_exemption": false,
+      "tax_exempt": false
+    }
+  },
+  "invoices": {
+    "CUST-1001": [
+      {
+        "billing_start": "2025-07-01",
+        "billing_end": "2025-07-31",
+        "total_kwh": 1080,
+        "peak_kwh": 320,
+        "line_items": [
+          {
+            "description": "Base Plan",
+            "amount": 180.0,
+            "policy_ref": "plan_terms.md \u00a73.0"
+          },
+          {
+            "description": "Usage Overage",
+            "detail": "80.0 kWh \u00d7 $0.14/kWh",
+            "amount": 11.2,
+            "policy_ref": "plan_terms.md \u00a74.0"
+          },
+          {
+            "description": "Summer Peak Surcharge",
+            "detail": "320.0 peak kWh \u00d7 $0.08 (capped at $75)",
+            "amount": 25.6,
+            "policy_ref": "surcharge_policy.md \u00a74.0, \u00a75.0"
+          },
+          {
+            "description": "Loyalty Credit",
+            "amount": -3.6,
+            "policy_ref": "credits_and_discounts.md \u00a71.0"
+          },
+          {
+            "description": "Autopay Discount",
+            "amount": -5.0,
+            "policy_ref": "credits_and_discounts.md \u00a72.0"
+          },
+          {
+            "description": "Paperless Billing Credit",
+            "amount": -2.0,
+            "policy_ref": "credits_and_discounts.md \u00a73.0"
+          },
+          {
+            "description": "Renewable Energy Fund",
+            "detail": "1080.0 kWh \u00d7 $0.002",
+            "amount": 2.16,
+            "policy_ref": "taxes_and_fees.md \u00a73.0"
+          },
+          {
+            "description": "State Regulatory Fee",
+            "amount": 3.5,
+            "policy_ref": "taxes_and_fees.md \u00a72.0"
+          },
+          {
+            "description": "City Utility Tax",
+            "detail": "5.5% of $216.80",
+            "amount": 11.92,
+            "policy_ref": "taxes_and_fees.md \u00a71.0"
+          }
+        ],
+        "total": 223.78,
+        "invoice_id": "INV-1001-2025-07"
+      }
+    ],
+    "CUST-1002": [
+      {
+        "billing_start": "2025-07-01",
+        "billing_end": "2025-07-31",
+        "total_kwh": 1350,
+        "peak_kwh": 500,
+        "line_items": [
+          {
+            "description": "Base Plan",
+            "amount": 180.0,
+            "policy_ref": "plan_terms.md §3.0"
+          },
+          {
+            "description": "Usage Overage",
+            "detail": "350.0 kWh × $0.14/kWh",
+            "amount": 49.0,
+            "policy_ref": "plan_terms.md §4.0"
+          },
+          {
+            "description": "Summer Peak Surcharge",
+            "detail": "500.0 peak kWh × $0.08 (capped at $75)",
+            "amount": 40.0,
+            "policy_ref": "surcharge_policy.md §4.0, §5.0"
+          },
+          {
+            "description": "Renewable Energy Fund",
+            "detail": "1350.0 kWh × $0.002",
+            "amount": 2.7,
+            "policy_ref": "taxes_and_fees.md §3.0"
+          },
+          {
+            "description": "State Regulatory Fee",
+            "amount": 3.5,
+            "policy_ref": "taxes_and_fees.md §2.0"
+          },
+          {
+            "description": "City Utility Tax",
+            "detail": "5.5% of $269.00",
+            "amount": 14.8,
+            "policy_ref": "taxes_and_fees.md §1.0"
+          }
+        ],
+        "total": 290.0,
+        "invoice_id": "INV-1002-2025-07"
+      }
+    ]
+  },
+  "meter_reads": {
+    "CUST-1001": [
+      {
+        "billing_start": "2025-07-01",
+        "billing_end": "2025-07-31",
+        "total_kwh": 1080,
+        "peak_kwh": 320,
+        "off_peak_kwh": 760
+      }
+    ],
+    "CUST-1002": [
+      {
+        "billing_start": "2025-07-01",
+        "billing_end": "2025-07-31",
+        "total_kwh": 1350,
+        "peak_kwh": 500,
+        "off_peak_kwh": 850
+      }
+    ]
+  }
+}
