@@ -1,27 +1,82 @@
 {
+    "$schema": "./agents.schema.json",
     "agents": [
         {
-        "name": "billing_agent",
-        "description": "An agent responsible for handling billing-related tasks, such as processing payments, generating invoices, and managing subscriptions.",
-        "capabilities": [
-            "Process payments securely and efficiently.",
-            "Generate accurate invoices based on customer usage and subscription plans.",
-            "Manage customer subscriptions, including upgrades, downgrades, and cancellations.",
-            "Integrate with various payment gateways and financial systems.",
-            "Provide detailed billing reports and analytics to customers and administrators."
-        ],
-        "endpoint": "http://localhost:8000/billing_agent"
-    },
-    {
-        "name": "anomaly_detection_agent",
-        "description": "An agent responsible for detecting anomalies in data, such as unusual patterns, outliers, or potential security threats.",
-        "capabilities": [
-            "Analyze large datasets to identify anomalies and outliers.",
-            "Use machine learning algorithms to improve anomaly detection accuracy over time.",
-            "Provide real-time alerts and notifications when anomalies are detected.",
-            "Integrate with various data sources and monitoring systems."
-        ],
-        "endpoint": "http://localhost:8000/anomaly_detection_agent"
-    }
+            "name": "billing_agent",
+            "version": "1.0.0",
+            "status": "active",
+            "description": "Handles billing-related tasks such as processing payments, generating invoices, and managing subscriptions.",
+            "capabilities": [
+                "Process payments securely and efficiently.",
+                "Generate accurate invoices based on customer usage and subscription plans.",
+                "Manage customer subscriptions, including upgrades, downgrades, and cancellations.",
+                "Integrate with various payment gateways and financial systems.",
+                "Provide detailed billing reports and analytics to customers and administrators."
+            ],
+            "tags": ["billing", "payments", "subscriptions", "invoicing"],
+            "endpoint": "http://localhost:8001/billing_agent",
+            "health_check": "http://localhost:8001/health",
+            "timeout_seconds": 30,
+            "input_schema": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string" },
+                    "step": { "type": "object" },
+                    "context": { "type": "object" }
+                }
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "status": { "type": "string" },
+                    "result": { "type": "object" },
+                    "message": { "type": "string" }
+                }
+            },
+            "metadata": {
+                "author": "UUO Team",
+                "created_at": "2025-01-01",
+                "updated_at": "2026-02-23"
+            }
+        },
+        {
+            "name": "anomaly_detection_agent",
+            "version": "1.0.0",
+            "status": "active",
+            "description": "Detects anomalies in utility data streams such as unusual usage patterns, outliers, or potential security threats.",
+            "capabilities": [
+                "Analyze large datasets to identify anomalies and outliers.",
+                "Use machine learning algorithms to improve anomaly detection accuracy over time.",
+                "Provide real-time alerts and notifications when anomalies are detected.",
+                "Integrate with various data sources and monitoring systems."
+            ],
+            "tags": ["anomaly", "detection", "monitoring", "alerts", "machine-learning"],
+            "endpoint": "http://localhost:8002/anomaly_detection_agent",
+            "health_check": "http://localhost:8002/health",
+            "timeout_seconds": 60,
+            "input_schema": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string" },
+                    "step": { "type": "object" },
+                    "context": { "type": "object" }
+                }
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "anomalies": { "type": "array" },
+                    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+                    "message": { "type": "string" }
+                }
+            },
+            "metadata": {
+                "author": "UUO Team",
+                "created_at": "2025-01-01",
+                "updated_at": "2026-02-23"
+            }
+        }
     ]
 }
