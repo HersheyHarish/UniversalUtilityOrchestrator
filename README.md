@@ -50,3 +50,40 @@ chmod +x run_dev.sh
 cd UniversalUtilityAgent/src/core
 python3 orchestrator.py
 ```
+
+## Run Agents Locally With Docker
+The repo now includes small launcher scripts that reuse the existing Docker image and start the FastAPI agents directly.
+
+Here's an example of starting the anomaly agent:
+
+Start the anomaly agent:
+```bash
+bash run_anomaly_agent.sh
+```
+
+Anomaly agent test request:
+```bash
+curl -s -X POST http://localhost:8000/anomaly_detection_agent \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":3488,"start_date":"2019-10-24T23:45:00-05:00","end_date":"2019-10-31T23:45:00-05:00"}'
+```
+
+Here's an example of starting the billing agent:
+
+
+Start the billing agent:
+```bash
+bash run_billing_agent.sh
+```
+
+Billing agent test request:
+```bash
+curl -s -X POST http://localhost:8001/billing_agent \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Why was customer CUST-1001 charged in July 2025?"}'
+```
+
+Stop both agent containers:
+```bash
+bash stop_agents.sh
+```
