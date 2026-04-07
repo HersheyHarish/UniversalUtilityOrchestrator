@@ -24,6 +24,7 @@ echo "--- Starting billing agent on http://localhost:8001 ---"
 docker run -d \
     --name "${CONTAINER_NAME}" \
     -p 8001:8001 \
+    -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
     -v "$(pwd)":/app \
     "${IMAGE_NAME}" \
     python -m src.agents.billingAgent >/dev/null
