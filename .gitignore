@@ -87,6 +87,11 @@ kubeconfig
 .python_packages
 # Local anomaly data
 src/data/*.csv
+!src/data/15minute_data_sample.csv
 
 # Generated billing retrieval cache
 src/data/vector_store/
+
+# Local Postman workspace files
+.postman/
+postman/
