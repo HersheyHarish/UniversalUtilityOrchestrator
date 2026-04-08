@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import warnings
+from calendar import monthrange
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,10 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT_FILE = Path(
     os.getenv("ANOMALY_INPUT_FILE", str(BASE_DIR / "data" / "15minute_data_sample.csv"))
 )
+CUSTOMER_TO_USER_ID = {
+    "CUST-1001": 5997,
+    "CUST-1002": 3488,
+}
 
 IF_CONTAMINATION = 0.02
 ZSCORE_THRESHOLD = 3.0
@@ -48,7 +55,17 @@ _SCORED_DATA_CACHE: tuple[int, pd.DataFrame] | None = None
 
 class AnomalyRequest(BaseModel):
     query: str = "Check spikes"
+    user_id: int | None = None
+    customer_id: str | int | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    max_results: int = Field(default=5, ge=1, le=20)
+
+
+class ResolvedAnomalyRequest(BaseModel):
+    query: str
     user_id: int
+    customer_id: str | None = None
     start_date: str
     end_date: str
     max_results: int = Field(default=5, ge=1, le=20)
@@ -63,6 +80,80 @@ def normalize_timestamp(value: str | pd.Timestamp, reference: pd.Timestamp) -> p
     if ts.tzinfo is not None:
         return ts.tz_localize(None)
     return ts
+
+
+def normalize_customer_id(customer_id: str | int) -> str:
+    text = str(customer_id).strip().upper()
+    match = re.search(r"(\d+)", text)
+    if not match:
+        return text
+    return f"CUST-{int(match.group(1)):04d}"
+
+
+def resolve_anomaly_inputs(request: AnomalyRequest, df: pd.DataFrame) -> ResolvedAnomalyRequest:
+    user_id = request.user_id
+    customer_id = request.customer_id
+    start_date = request.start_date
+    end_date = request.end_date
+    query = request.query or "Check spikes"
+
+    if customer_id is None:
+        customer_match = re.search(
+            r"\b(?:customer|account|acct|cust|user)\s*(?:id\s*)?(?:#|:|=)?\s*((?:CUST-)?\d+)\b",
+            query,
+            flags=re.IGNORECASE,
+        )
+        if customer_match:
+            customer_id = customer_match.group(1)
+
+    if start_date is None or end_date is None:
+        date_match = re.search(
+            r"\b(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\b",
+            query,
+        )
+        if date_match:
+            start_date = f"{date_match.group(1)}T00:00:00"
+            end_date = f"{date_match.group(2)}T23:59:59"
+        else:
+            month_match = re.search(
+                r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b",
+                query,
+                flags=re.IGNORECASE,
+            )
+            if month_match:
+                month = datetime.strptime(month_match.group(1), "%B").month
+                year = int(month_match.group(2))
+                last_day = monthrange(year, month)[1]
+                start_date = f"{year:04d}-{month:02d}-01T00:00:00"
+                end_date = f"{year:04d}-{month:02d}-{last_day:02d}T23:59:59"
+
+    if user_id is None and customer_id is not None:
+        normalized_customer_id = normalize_customer_id(customer_id)
+        if normalized_customer_id not in CUSTOMER_TO_USER_ID:
+            raise ValueError(f"Unknown customer_id: {customer_id}")
+        user_id = CUSTOMER_TO_USER_ID[normalized_customer_id]
+        customer_id = normalized_customer_id
+
+    if user_id is None:
+        raise ValueError(
+            "Anomaly queries must include customer CUST-1001 or CUST-1002, or an explicit numeric user_id."
+        )
+    if start_date is None or end_date is None:
+        raise ValueError(
+            "Anomaly queries must include a date range like `2019-07-01 - 2019-07-31` or a month and year like `July 2019`."
+        )
+
+    if int(user_id) not in set(df["dataid"].unique()):
+        raise ValueError(f"Unknown user_id: {user_id}")
+
+    return ResolvedAnomalyRequest(
+        query=query,
+        user_id=int(user_id),
+        customer_id=normalize_customer_id(customer_id) if customer_id is not None else None,
+        start_date=start_date,
+        end_date=end_date,
+        max_results=request.max_results,
+    )
 
 
 def load_data(input_file: Path) -> pd.DataFrame:
@@ -275,7 +366,7 @@ def response_severity(spikes: pd.DataFrame) -> str:
     return "medium"
 
 
-def build_response(request: AnomalyRequest, df: pd.DataFrame) -> dict[str, Any]:
+def build_response(request: ResolvedAnomalyRequest, df: pd.DataFrame) -> dict[str, Any]:
     reference_end = df["local_15min"].max()
     start_ts = normalize_timestamp(request.start_date, reference_end)
     end_ts = normalize_timestamp(request.end_date, reference_end)
@@ -303,6 +394,7 @@ def build_response(request: AnomalyRequest, df: pd.DataFrame) -> dict[str, Any]:
 
     return {
         "user_id": user_id,
+        "customer_id": request.customer_id,
         "start_date": start_ts.isoformat(),
         "end_date": end_ts.isoformat(),
         "spike_detected": bool(len(household_spikes) > 0),
@@ -347,7 +439,8 @@ def health() -> dict[str, str]:
 def anomaly_detection_agent(request: AnomalyRequest) -> dict[str, Any]:
     try:
         scored = run_detection(DEFAULT_INPUT_FILE)
-        return build_response(request, scored)
+        resolved = resolve_anomaly_inputs(request, scored)
+        return build_response(resolved, scored)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

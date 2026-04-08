@@ -45,7 +45,7 @@
             "name": "anomaly_detection_agent",
             "version": "1.0.0",
             "status": "active",
-            "description": "Detects anomalies in utility data streams such as unusual usage patterns, outliers, or potential security threats.",
+            "description": "Detects usage anomalies for the demo households over a requested billing window. For the demo, prefer a natural-language query containing `CUST-1001` or `CUST-1002` and a month with year like `Did customer CUST-1001 have a spike in July 2019?`.",
             "capabilities": [
                 "Analyze large datasets to identify anomalies and outliers.",
                 "Use machine learning algorithms to improve anomaly detection accuracy over time.",
@@ -58,12 +58,13 @@
             "timeout_seconds": 60,
             "input_schema": {
                 "type": "object",
-                "required": ["query", "user_id", "start_date", "end_date"],
+                "required": ["query"],
                 "properties": {
-                    "query": { "type": "string" },
-                    "user_id": { "type": "integer", "description": "Numeric User ID, e.g. 4550" },
-                    "start_date": { "type": "string", "description": "ISO format start date optionally with timezone, e.g. 2019-10-24T23:45:00-05:00" },
-                    "end_date": { "type": "string", "description": "ISO format end date optionally with timezone, e.g. 2019-10-31T23:45:00-05:00" },
+                    "query": { "type": "string", "description": "A natural-language anomaly question. Include `CUST-1001` or `CUST-1002` and a month with year, for example `Did customer CUST-1001 have a usage spike in July 2019?`" },
+                    "customer_id": { "type": "string", "description": "Optional billing customer ID like CUST-1001. For the demo, supported values are CUST-1001 and CUST-1002." },
+                    "user_id": { "type": "integer", "description": "Optional numeric anomaly user ID, e.g. 5997. This is mainly for direct testing; the demo should usually use customer_id." },
+                    "start_date": { "type": "string", "description": "Optional ISO format start date optionally with timezone, e.g. 2019-07-01T00:00:00-05:00. If omitted, the agent parses dates from the query." },
+                    "end_date": { "type": "string", "description": "Optional ISO format end date optionally with timezone, e.g. 2019-07-31T23:59:59-05:00. If omitted, the agent parses dates from the query." },
                     "max_results": { "type": "integer", "default": 5 }
                 }
             },
