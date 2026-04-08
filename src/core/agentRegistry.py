@@ -12,6 +12,8 @@ class AgentDefinition:
     description: str
     capabilities: list[str]
     endpoint: str
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: int = 30
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "AgentDefinition":
@@ -20,6 +22,8 @@ class AgentDefinition:
             description=payload.get("description", ""),
             capabilities=payload.get("capabilities", []),
             endpoint=payload["endpoint"],
+            input_schema=payload.get("input_schema", {}),
+            timeout_seconds=int(payload.get("timeout_seconds", 30)),
         )
 
 class AgentRegistry:
@@ -37,12 +41,13 @@ class AgentRegistry:
     def get(self, agent_name: str) -> AgentDefinition | None:
         return next((agent for agent in self.agents if agent.name == agent_name), None)
 
-    def list_brief(self) -> list[dict[str, Any]]:
+    def list_brief_with_schemas(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": agent.name,
                 "description": agent.description,
                 "capabilities": agent.capabilities,
+                "input_schema": agent.input_schema,
             }
             for agent in self.agents
         ]

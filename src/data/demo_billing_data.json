@@ -145,7 +145,7 @@
   "meter_reads": {
     "CUST-1001": [
       {
-        "billing_start": "2025-07-01",
+        "billing_start": "2019-07-01",
         "billing_end": "2025-07-31",
         "total_kwh": 1080,
         "peak_kwh": 320,
@@ -154,7 +154,7 @@
     ],
     "CUST-1002": [
       {
-        "billing_start": "2025-07-01",
+        "billing_start": "2019-07-01",
         "billing_end": "2025-07-31",
         "total_kwh": 1350,
         "peak_kwh": 500,

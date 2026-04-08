@@ -6,7 +6,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Universal Utility Orchestrator", page_icon="UUO", layout="wide")
 
-AZURE_FUNC_URL = os.getenv("ORCHESTRATOR_API_URL", )
+AZURE_FUNC_URL = os.getenv("ORCHESTRATOR_API_URL", "http://localhost:7071/api/orchestrator/run" )
 
 def init_session() -> None:
     if "session_id" not in st.session_state:
@@ -24,7 +24,7 @@ def run_http_orchestrator(query: str, session_id: str) -> dict:
         "session_id": session_id
     }
     
-    response = requests.post(AZURE_FUNC_URL, json=payload)
+    response = requests.post(AZURE_FUNC_URL, json=payload, timeout=180)
     response.raise_for_status()
     
     return response.json()
@@ -91,10 +91,33 @@ def main():
                     st.session_state["traces"].append(result)
                     
                     final_answer = result.get("final_answer", "No answer found.")
+                    
+                    # Show status indicator for partial failures
+                    orch_status = result.get("status")
+                    if orch_status == "failed":
+                        st.warning("⚠️ Some agent steps failed. Partial results shown below.")
+                    elif orch_status == "blocked":
+                        st.error("🚫 Request was blocked by guardrails.")
+                    
                     st.markdown(final_answer)
                     st.session_state["messages"].append({"role": "assistant", "content": final_answer})
+                except requests.exceptions.HTTPError as e:
+                    # Try to extract the JSON body even from error responses
+                    try:
+                        error_body = e.response.json()
+                        if "query" not in error_body:
+                            error_body["query"] = prompt
+                        st.session_state["traces"].append(error_body)
+                        final_answer = error_body.get("final_answer", f"API error: {e.response.status_code}")
+                        st.warning(f"⚠️ API returned {e.response.status_code}")
+                        st.markdown(final_answer)
+                        st.session_state["messages"].append({"role": "assistant", "content": final_answer})
+                    except Exception:
+                        error_msg = f"API error {e.response.status_code}: {e.response.text[:300]}"
+                        st.error(error_msg)
+                        st.session_state["messages"].append({"role": "assistant", "content": error_msg})
                 except Exception as e:
-                    error_msg = f"Failed to execute API call: {str(e)}"
+                    error_msg = f"Failed to reach orchestrator: {str(e)}"
                     st.error(error_msg)
                     st.session_state["messages"].append({"role": "assistant", "content": error_msg})
 

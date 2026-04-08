@@ -1,12 +1,18 @@
 #!/bin/bash
 
-set -euo pipefail
+# Stops locally running native python agents
 
-for container in billing_agent_local anomaly_agent_local; do
-    if [ "$(docker ps -aq -f name=^/${container}$)" ]; then
-        echo "--- Stopping ${container} ---"
-        docker rm -f "${container}" >/dev/null
+for agent in anomaly_agent billing_agent; do
+    if [ -f "${agent}.pid" ]; then
+        PID=$(cat "${agent}.pid")
+        echo "--- Stopping ${agent} (PID: $PID) ---"
+        kill -9 "$PID" 2>/dev/null || true
+        rm "${agent}.pid"
     fi
 done
 
-echo "Agent containers stopped."
+# Failsafe port kill just in case PIDs were lost
+lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+lsof -ti:8001 | xargs kill -9 2>/dev/null || true
+
+echo "Agent processes stopped."
