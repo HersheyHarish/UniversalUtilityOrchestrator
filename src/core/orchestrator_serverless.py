@@ -131,11 +131,12 @@ async def orchestrator_http_ingress(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     status = result.get("status")
+    # Always return 200 for orchestration results (even partial failures)
+    # so the UI can display the trace, plan, and any completed steps.
+    # Only guardrail-blocked requests get a non-200 status.
     status_code = 200
     if status == "blocked":
         status_code = 422
-    elif status == "failed":
-        status_code = 500
 
     return func.HttpResponse(
         body=json.dumps(result, default=str),

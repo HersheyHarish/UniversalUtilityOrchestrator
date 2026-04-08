@@ -34,7 +34,8 @@ class AgentInvoker:
             headers["Authorization"] = f"Bearer {api_key}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            timeout = getattr(agent, 'timeout_seconds', self.timeout_seconds) or self.timeout_seconds
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(agent.endpoint, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.RequestError as exc:

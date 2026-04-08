@@ -145,10 +145,16 @@ def try_llm_summary(query: str, facts: dict[str, Any], citations: list[dict[str,
         "Avoid headings, markdown bullets, and vague phrases like 'review your account activity' or 'contact customer service' unless a dispute policy clearly applies."
     )
     try:
+<<<<<<< HEAD
         llm = ChatOllama(model=model_name, temperature=0, base_url=ollama_base_url)
+=======
+        llm = ChatOllama(model=model_name, temperature=0, timeout=120)
+>>>>>>> 19086f9 (Added working demo build, modified agentInvoke to support dynamic JSON payloads)
         response = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
         return response.content.strip() if isinstance(response.content, str) else None
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Ollama LLM failed: {exc}")
         return None
 
 

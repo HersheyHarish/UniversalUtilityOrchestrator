@@ -5,25 +5,26 @@
             "name": "billing_agent",
             "version": "1.0.0",
             "status": "active",
-            "description": "Handles billing-related tasks such as processing payments, generating invoices, and managing subscriptions.",
+            "description": "Explains billing charges using RAG-based policy retrieval and structured billing facts. Accepts a natural-language query that should embed the customer ID and date range so the agent can parse and retrieve relevant policies.",
             "capabilities": [
-                "Process payments securely and efficiently.",
-                "Generate accurate invoices based on customer usage and subscription plans.",
-                "Manage customer subscriptions, including upgrades, downgrades, and cancellations.",
-                "Integrate with various payment gateways and financial systems.",
-                "Provide detailed billing reports and analytics to customers and administrators."
+                "Explain specific billing charges and line items for a customer.",
+                "Retrieve and cite relevant billing policy documents via RAG.",
+                "Compare customer-claimed amounts against actual invoiced totals.",
+                "Generate detailed billing reports and analytics for customers.",
+                "Handle billing dispute inquiries by referencing policy rules."
             ],
             "tags": ["billing", "payments", "subscriptions", "invoicing"],
             "endpoint": "http://localhost:8001/billing_agent",
             "health_check": "http://localhost:8001/health",
-            "timeout_seconds": 30,
+            "timeout_seconds": 120,
             "input_schema": {
                 "type": "object",
                 "required": ["query"],
                 "properties": {
-                    "query": { "type": "string" },
-                    "step": { "type": "object" },
-                    "context": { "type": "object" }
+                    "query": { "type": "string", "description": "A natural-language billing question. IMPORTANT: embed the customer ID (e.g. 'customer CUST-1001') and date range (e.g. '2025-07-01 - 2025-07-31' or 'July 2025') directly inside the query text so the agent can parse them. Example: 'Why was customer CUST-1001 charged $150 for July 2025?'" },
+                    "customer_id": { "type": "string", "description": "Optional explicit customer ID. If omitted, the agent will parse it from the query string. Format: CUST-1001" },
+                    "start_date": { "type": "string", "description": "Optional explicit ISO start date, e.g. 2025-07-01T00:00:00. If omitted, the agent parses dates from the query string." },
+                    "end_date": { "type": "string", "description": "Optional explicit ISO end date, e.g. 2025-07-31T23:59:59. If omitted, the agent parses dates from the query string." }
                 }
             },
             "output_schema": {
@@ -52,16 +53,18 @@
                 "Integrate with various data sources and monitoring systems."
             ],
             "tags": ["anomaly", "detection", "monitoring", "alerts", "machine-learning"],
-            "endpoint": "http://localhost:8002/anomaly_detection_agent",
-            "health_check": "http://localhost:8002/health",
+            "endpoint": "http://localhost:8000/anomaly_detection_agent",
+            "health_check": "http://localhost:8000/health",
             "timeout_seconds": 60,
             "input_schema": {
                 "type": "object",
-                "required": ["query"],
+                "required": ["query", "user_id", "start_date", "end_date"],
                 "properties": {
                     "query": { "type": "string" },
-                    "step": { "type": "object" },
-                    "context": { "type": "object" }
+                    "user_id": { "type": "integer", "description": "Numeric User ID, e.g. 4550" },
+                    "start_date": { "type": "string", "description": "ISO format start date optionally with timezone, e.g. 2019-10-24T23:45:00-05:00" },
+                    "end_date": { "type": "string", "description": "ISO format end date optionally with timezone, e.g. 2019-10-31T23:45:00-05:00" },
+                    "max_results": { "type": "integer", "default": 5 }
                 }
             },
             "output_schema": {

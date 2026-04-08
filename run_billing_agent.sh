@@ -1,33 +1,24 @@
 #!/bin/bash
 
-set -euo pipefail
+# Local run script (Docker bypassed since Daemon is down)
 
-CONTAINER_NAME="billing_agent_local"
-IMAGE_NAME="utility-agent-alpine"
+VENV_PATH="$(cd .. && pwd)/.venv/bin/activate"
 
-if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
-    echo "Billing agent already running at http://localhost:8001"
+if [ -f "$VENV_PATH" ]; then
+    source "$VENV_PATH"
+elif [ -d ".venv" ]; then
+    source .venv/bin/activate
+fi
+
+if [ -f "billing_agent.pid" ]; then
+    echo "Billing agent might already be running. Run ./stop_agents.sh first."
     exit 0
 fi
 
-if [ ! "$(docker images -q ${IMAGE_NAME} 2>/dev/null)" ]; then
-    echo "--- Building shared image ${IMAGE_NAME} ---"
-    docker build -t "${IMAGE_NAME}" .
-fi
-
-if [ "$(docker ps -aq -f name=^/${CONTAINER_NAME}$)" ]; then
-    echo "--- Removing stopped container ${CONTAINER_NAME} ---"
-    docker rm -f "${CONTAINER_NAME}" >/dev/null
-fi
-
 echo "--- Starting billing agent on http://localhost:8001 ---"
-docker run -d \
-    --name "${CONTAINER_NAME}" \
-    -p 8001:8001 \
-    -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-    -v "$(pwd)":/app \
-    "${IMAGE_NAME}" \
-    python -m src.agents.billingAgent >/dev/null
+export PORT=8001
+nohup python -m src.agents.billingAgent > billing_agent.log 2>&1 &
+echo $! > billing_agent.pid
 
-echo "Billing agent started. Test with:"
+echo "Billing agent started with PID $(cat billing_agent.pid). Test with:"
 echo "curl -s http://localhost:8001/health"

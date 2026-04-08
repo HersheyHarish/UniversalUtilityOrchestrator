@@ -177,19 +177,24 @@ class UniversalOrchestrator:
                 dep: previous_step_results.get(dep, {}).get("output") for dep in step.dependencies
             }
 
-            payload = {
-                "query": user_query,
-                "step": {
-                    "id": step.id,
-                    "objective": step.objective,
-                    "required_capabilities": step.required_capabilities,
-                    "dependencies": step.dependencies,
-                    "output_key": step.output_key,
-                },
-                "context": {
-                    "dependency_outputs": dependency_context,
-                    "all_step_results": previous_step_results,
-                },
+            try:
+                payload = json.loads(step.parameters) if step.parameters else {}
+            except Exception:
+                payload = {}
+                
+            if "query" not in payload:
+                payload["query"] = user_query
+                
+            payload["step_metadata"] = {
+                "id": step.id,
+                "objective": step.objective,
+                "required_capabilities": step.required_capabilities,
+                "dependencies": step.dependencies,
+                "output_key": step.output_key,
+            }
+            payload["context"] = {
+                "dependency_outputs": dependency_context,
+                "all_step_results": previous_step_results,
             }
 
             if self.use_demo_invoke:

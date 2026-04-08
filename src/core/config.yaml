@@ -22,6 +22,6 @@ planning:
 
 orchestration:
   timeout_seconds: 30
-  halt_on_step_failure: true
+  halt_on_step_failure: false
   use_demo_invoke: false
   log_level: "INFO"
