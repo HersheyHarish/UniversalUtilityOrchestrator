@@ -25,3 +25,12 @@ orchestration:
   halt_on_step_failure: false
   use_demo_invoke: false
   log_level: "INFO"
+
+evaluation:
+  enabled: true
+  model: "llama3.1:8b"
+  timeout: 60
+
+memory:
+  provider: "auto"  # "cosmosdb", "local_file", or "auto"
+  local_traces_dir: "traces"

@@ -7,7 +7,7 @@ import warnings
 from calendar import monthrange
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -55,17 +55,17 @@ _SCORED_DATA_CACHE: tuple[int, pd.DataFrame] | None = None
 
 class AnomalyRequest(BaseModel):
     query: str = "Check spikes"
-    user_id: int | None = None
-    customer_id: str | int | None = None
-    start_date: str | None = None
-    end_date: str | None = None
+    user_id: Optional[int] = None
+    customer_id: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     max_results: int = Field(default=5, ge=1, le=20)
 
 
 class ResolvedAnomalyRequest(BaseModel):
     query: str
     user_id: int
-    customer_id: str | None = None
+    customer_id: Optional[str] = None
     start_date: str
     end_date: str
     max_results: int = Field(default=5, ge=1, le=20)
@@ -430,12 +430,12 @@ def run_detection(input_file: Path) -> pd.DataFrame:
     return scored
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "agent": "anomaly_detection_agent"}
 
 
-@app.post("/anomaly_detection_agent")
+@app.post("/api/anomaly_detection_agent")
 def anomaly_detection_agent(request: AnomalyRequest) -> dict[str, Any]:
     try:
         scored = run_detection(DEFAULT_INPUT_FILE)
