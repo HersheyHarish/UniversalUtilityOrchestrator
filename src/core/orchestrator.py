@@ -20,8 +20,9 @@ from inputGuard import GuardrailResult, InputGuardrails
 from planner import ExecutionPlan, PlanStep, PlanningService
 from dagCreator import DAGCreator
 from agentInvoke import AgentInvocationResult, AgentInvoker
-from memory import CosmosDBMemoryStore
+from memory import CosmosDBMemoryStore, create_memory_store
 from telemetry import get_tracer
+import tiktoken
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -35,7 +36,7 @@ class UniversalOrchestrator:
             self.config = yaml.safe_load(handle) or {}
 
         self.registry = AgentRegistry.load(registry_file)
-        self.memory = CosmosDBMemoryStore()
+        self.memory = create_memory_store()
 
         llm_cfg = self.config.get("llm", {})
         
@@ -77,6 +78,18 @@ class UniversalOrchestrator:
         self.agent_invoker = AgentInvoker(timeout_seconds=int(orchestration_cfg.get("timeout_seconds", 30)))
         self.halt_on_step_failure = bool(orchestration_cfg.get("halt_on_step_failure", True))
         self.use_demo_invoke = bool(orchestration_cfg.get("use_demo_invoke", False))
+        
+        self.evaluator = None
+        if evaluation_cfg.get("enabled", True):
+            eval_model = evaluation_cfg.get("model", "llama3.1:8b")
+            eval_timeout = int(evaluation_cfg.get("timeout", 60))
+            self.evaluator = EvaluationService(model_name=eval_model, timeout=eval_timeout)
+        
+        self.tokenizer = None
+        try:
+             self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+             logger.warning(f"Could not load tiktoken: {e}")
 
     async def run(self, user_query: str, session_id: str | None = None) -> str:
         trace = await self.run_with_trace(user_query, session_id)
@@ -141,12 +154,42 @@ class UniversalOrchestrator:
             with tracer.start_as_current_span("synthesize_answer"):
                 final_answer = await self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
             
+            # 5: Optionally evaluate the run
+            evaluation_blob = None
+            if self.evaluator:
+                logger.info("[Hub] Running evaluation...")
+                with tracer.start_as_current_span("run_evaluation"):
+                    try:
+                        eval_result = await self.evaluator.aevaluate(
+                            user_query=guardrail_result.sanitized_query,
+                            plan_dict=plan.model_dump(),
+                            step_results=step_results,
+                            final_answer=final_answer
+                        )
+                        evaluation_blob = {
+                            "goal_met": eval_result.goal_met,
+                            "score": eval_result.score,
+                            "summary": eval_result.summary,
+                            "issues": eval_result.issues,
+                            "retry_recommended": eval_result.retry_recommended
+                        }
+                    except Exception as e:
+                        logger.error(f"[Hub] Evaluation failed: {e}")
+            
+            total_tokens = 0
+            if self.tokenizer:
+                 # roughly estimate input tokens used
+                 content = str(plan.model_dump()) + str(step_results) + final_answer
+                 total_tokens = len(self.tokenizer.encode(content))
+            
             result_val = {
                 "status": "completed",
                 "plan": plan.model_dump(),
                 "steps": step_results,
                 "final_answer": final_answer,
                 "session_id": session_id,
+                "evaluation": evaluation_blob,
+                "tokens": total_tokens
             }
             await self.memory.save_trace(session_id, result_val)
             return result_val

@@ -3,8 +3,6 @@
     "agents": [
         {
             "name": "billing_agent",
-            "version": "1.0.0",
-            "status": "active",
             "description": "Explains billing charges using RAG-based policy retrieval and structured billing facts. Accepts a natural-language query that should embed the customer ID and date range so the agent can parse and retrieve relevant policies.",
             "capabilities": [
                 "Explain specific billing charges and line items for a customer.",
@@ -13,38 +11,35 @@
                 "Generate detailed billing reports and analytics for customers.",
                 "Handle billing dispute inquiries by referencing policy rules."
             ],
-            "tags": ["billing", "payments", "subscriptions", "invoicing"],
-            "endpoint": "http://localhost:8001/billing_agent",
-            "health_check": "http://localhost:8001/health",
+            "endpoint": "http://localhost:8001/billing_agent/api",
             "timeout_seconds": 120,
             "input_schema": {
                 "type": "object",
-                "required": ["query"],
+                "required": [
+                    "query"
+                ],
                 "properties": {
-                    "query": { "type": "string", "description": "A natural-language billing question. IMPORTANT: embed the customer ID (e.g. 'customer CUST-1001') and date range (e.g. '2025-07-01 - 2025-07-31' or 'July 2025') directly inside the query text so the agent can parse them. Example: 'Why was customer CUST-1001 charged $150 for July 2025?'" },
-                    "customer_id": { "type": "string", "description": "Optional explicit customer ID. If omitted, the agent will parse it from the query string. Format: CUST-1001" },
-                    "start_date": { "type": "string", "description": "Optional explicit ISO start date, e.g. 2025-07-01T00:00:00. If omitted, the agent parses dates from the query string." },
-                    "end_date": { "type": "string", "description": "Optional explicit ISO end date, e.g. 2025-07-31T23:59:59. If omitted, the agent parses dates from the query string." }
+                    "query": {
+                        "type": "string",
+                        "description": "A natural-language billing question. IMPORTANT: embed the customer ID (e.g. 'customer CUST-1001') and date range (e.g. '2019-07-01 - 2019-07-31' or 'July 2019') directly inside the query text so the agent can parse them. Example: 'Why was customer CUST-1001 charged $150 for July 2019?'"
+                    },
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Optional explicit customer ID. If omitted, the agent will parse it from the query string. Format: CUST-1001"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Optional explicit ISO start date, e.g. 2019-07-01T00:00:00. If omitted, the agent parses dates from the query string."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Optional explicit ISO end date, e.g. 2019-07-31T23:59:59. If omitted, the agent parses dates from the query string."
+                    }
                 }
-            },
-            "output_schema": {
-                "type": "object",
-                "properties": {
-                    "status": { "type": "string" },
-                    "result": { "type": "object" },
-                    "message": { "type": "string" }
-                }
-            },
-            "metadata": {
-                "author": "UUO Team",
-                "created_at": "2025-01-01",
-                "updated_at": "2026-02-23"
             }
         },
         {
             "name": "anomaly_detection_agent",
-            "version": "1.0.0",
-            "status": "active",
             "description": "Detects usage anomalies for the demo households over a requested billing window. For the demo, prefer a natural-language query containing `CUST-1001` or `CUST-1002` and a month with year like `Did customer CUST-1001 have a spike in July 2019?`.",
             "capabilities": [
                 "Analyze large datasets to identify anomalies and outliers.",
@@ -52,34 +47,88 @@
                 "Provide real-time alerts and notifications when anomalies are detected.",
                 "Integrate with various data sources and monitoring systems."
             ],
-            "tags": ["anomaly", "detection", "monitoring", "alerts", "machine-learning"],
-            "endpoint": "http://localhost:8000/anomaly_detection_agent",
-            "health_check": "http://localhost:8000/health",
+            "endpoint": "http://localhost:8000/api/anomaly_detection_agent",
             "timeout_seconds": 60,
             "input_schema": {
                 "type": "object",
-                "required": ["query"],
+                "required": [
+                    "query"
+                ],
                 "properties": {
-                    "query": { "type": "string", "description": "A natural-language anomaly question. Include `CUST-1001` or `CUST-1002` and a month with year, for example `Did customer CUST-1001 have a usage spike in July 2019?`" },
-                    "customer_id": { "type": "string", "description": "Optional billing customer ID like CUST-1001. For the demo, supported values are CUST-1001 and CUST-1002." },
-                    "user_id": { "type": "integer", "description": "Optional numeric anomaly user ID, e.g. 5997. This is mainly for direct testing; the demo should usually use customer_id." },
-                    "start_date": { "type": "string", "description": "Optional ISO format start date optionally with timezone, e.g. 2019-07-01T00:00:00-05:00. If omitted, the agent parses dates from the query." },
-                    "end_date": { "type": "string", "description": "Optional ISO format end date optionally with timezone, e.g. 2019-07-31T23:59:59-05:00. If omitted, the agent parses dates from the query." },
-                    "max_results": { "type": "integer", "default": 5 }
+                    "query": {
+                        "type": "string",
+                        "description": "A natural-language anomaly question. Include `CUST-1001` or `CUST-1002` and a month with year, for example `Did customer CUST-1001 have a usage spike in July 2019?`"
+                    },
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Optional billing customer ID like CUST-1001. For the demo, supported values are CUST-1001 and CUST-1002."
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional numeric anomaly user ID, e.g. 5997. This is mainly for direct testing; the demo should usually use customer_id."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Optional ISO format start date optionally with timezone, e.g. 2019-07-01T00:00:00-05:00. If omitted, the agent parses dates from the query."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Optional ISO format end date optionally with timezone, e.g. 2019-07-31T23:59:59-05:00. If omitted, the agent parses dates from the query."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "default": 5
+                    }
                 }
-            },
-            "output_schema": {
+            }
+        },
+        {
+            "name": "customer_lookup_agent",
+            "description": "Returns customer account profile, plan details, and billing summary.",
+            "capabilities": [
+                "Look up customer profile and account details for billing and general context",
+                "Retrieve current plan, pricing, and discount eligibility.",
+                "Summarize billing history for specific accounts."
+            ],
+            "endpoint": "http://localhost:8002/api/customer_lookup_agent",
+            "timeout_seconds": 10,
+            "input_schema": {
                 "type": "object",
+                "required": [
+                    "query"
+                ],
                 "properties": {
-                    "anomalies": { "type": "array" },
-                    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
-                    "message": { "type": "string" }
+                    "query": {
+                        "type": "string",
+                        "description": "Natural-language question about a customer. Include CUST-1001 or CUST-1002."
+                    },
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Optional explicit customer ID like CUST-1001."
+                    }
                 }
-            },
-            "metadata": {
-                "author": "UUO Team",
-                "created_at": "2025-01-01",
-                "updated_at": "2026-02-23"
+            }
+        },
+        {
+            "name": "conversation_summary_agent",
+            "description": "Summarize previous conversations and extract key takeaways from the orchestrator.",
+            "capabilities": [
+                "Recap and summarize conversational context",
+                "Extract key facts from executed agent pipelines"
+            ],
+            "endpoint": "http://localhost:8003/api/conversation_summary_agent",
+            "timeout_seconds": 60,
+            "input_schema": {
+                "type": "object",
+                "required": [
+                    "query"
+                ],
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The request for summarization."
+                    }
+                }
             }
         }
     ]

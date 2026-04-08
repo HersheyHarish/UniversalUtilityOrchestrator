@@ -9,7 +9,10 @@ summary, issues, retry_recommended).
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,9 +20,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
-
-# Evaluation contract (Step 1–2): inputs are user_query, plan_dict, step_results, final_answer.
-# Output is this dataclass.
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -36,11 +37,17 @@ class EvaluationResult:
 class EvaluationService:
     """
     Evaluates whether a completed orchestration run satisfied the user's goal.
-    Uses the same LLM and JSON-extraction pattern as PlanningService.
+    Uses a local Ollama LLM and JSON-extraction pattern.
     """
 
-    def __init__(self, model: ChatOllama):
-        self.model = model
+    def __init__(self, model_name: str = "llama3.1:8b", timeout: int = 60):
+        ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.model = ChatOllama(
+            model=model_name,
+            temperature=0,
+            base_url=ollama_base_url,
+            timeout=timeout,
+        )
 
     def evaluate(
         self,
@@ -49,25 +56,25 @@ class EvaluationService:
         step_results: dict[str, dict[str, Any]],
         final_answer: str,
     ) -> EvaluationResult:
-        """
-        Run evaluation and return a structured result.
-
-        Args:
-            user_query: Original sanitized user request.
-            plan_dict: Serialized plan (goal + steps).
-            step_results: Map of step_id -> {status, agent, objective, output|error}.
-            final_answer: Synthesized answer shown to the user.
-
-        Returns:
-            EvaluationResult with goal_met, score, summary, issues, retry_recommended.
-        """
         prompt = self._build_prompt(user_query, plan_dict, step_results, final_answer)
         try:
             raw = self.model.invoke(prompt).content
             return self._parse_response(raw)
         except Exception as exc:
-            print(f"[Evaluator] Failed to evaluate with LLM: {exc}")
+            logger.warning(f"[Evaluator] Failed to evaluate with LLM: {exc}")
             return self._fallback_result(step_results, final_answer)
+
+    async def aevaluate(
+        self,
+        user_query: str,
+        plan_dict: dict[str, Any],
+        step_results: dict[str, dict[str, Any]],
+        final_answer: str,
+    ) -> EvaluationResult:
+        """Async wrapper — runs the synchronous Ollama call in a thread pool."""
+        return await asyncio.to_thread(
+            self.evaluate, user_query, plan_dict, step_results, final_answer
+        )
 
     def _build_prompt(
         self,
