@@ -1,8 +1,7 @@
 /**
  * client.js — Registry API client
  *
- * Reads VITE_REGISTRY_URL and VITE_FUNC_CODE from env.
- * Empty VITE_REGISTRY_URL means same-origin (useful behind SWA proxy).
+ * All API calls to the registry function app.
  * Session token is read from sessionStorage on every call.
  */
 
@@ -43,7 +42,8 @@ async function req(method, path, { body, params } = {}) {
   const data = ct.includes("application/json") ? await res.json() : await res.text();
 
   if (!res.ok) {
-    const msg = (typeof data === "object" ? data?.error || data?.detail : data) || `HTTP ${res.status}`;
+    const msg = (typeof data === "object" ? data?.error || data?.detail : data)
+      || `HTTP ${res.status}`;
     throw new Error(msg);
   }
   return data;
@@ -77,6 +77,34 @@ export const agents = {
 
   addCapability:    (id, cap)  => req("POST",   `/api/agents/${id}/capabilities`,      { body: cap }),
   removeCapability: (id, name) => req("DELETE",  `/api/agents/${id}/capabilities/${encodeURIComponent(name)}`),
+
+  /**
+   * Auto-fetch capabilities from a remote agent.
+   *
+   * Sends a capability-discovery prompt to the agent using the provided
+   * endpoint, auth, and invocation config. Plain secret values are used here
+   * (not Key Vault refs) so the fetch works before the agent is saved.
+   *
+   * @param {string}  endpointUrl       - Agent invoke URL
+   * @param {object}  authConfig        - AuthConfig (type, names, locations)
+   * @param {object}  authSecrets       - AuthSecrets (plain values — NOT saved)
+   * @param {object}  invocationConfig  - InvocationConfig (body template, etc.)
+   * @returns {Promise<{
+   *   capabilities: Array<{name, description, input_schema, output_schema}>,
+   *   raw_response: string,
+   *   parse_strategy: string,
+   *   warning: string|null
+   * }>}
+   */
+  fetchCapabilities: (endpointUrl, authConfig, authSecrets, invocationConfig) =>
+    req("POST", "/api/agents/capabilities/fetch", {
+      body: {
+        endpoint_url:      endpointUrl,
+        auth_config:       authConfig,
+        auth_secrets:      authSecrets,
+        invocation_config: invocationConfig,
+      },
+    }),
 };
 
 // ── Registry ──────────────────────────────────────────────────────────────────
