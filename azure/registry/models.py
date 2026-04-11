@@ -1,12 +1,31 @@
 """
 models.py — Pydantic models for the Agent Registry API.
 
-Key additions in this version:
-  - AuthType.OAUTH2 (client_credentials grant)
-  - OAuth2Config fields in AuthConfig
-  - AuthSecrets — carries the ACTUAL secret values from the UI
-    (registry stores them in Key Vault, saves only the secret name in Cosmos)
-  - AgentCreate / AgentUpdate / AgentReplace gain auth_secrets: AuthSecrets | None
+New in this version:
+  HealthCheckConfig
+    - check_type: http | tcp | none
+    - health_check_url: optional custom URL (derived from endpoint_url when blank)
+    - expected_http_status: default 200
+    - http_timeout_seconds: default 10
+    - tcp_port: derived from endpoint_url when blank
+    - tcp_timeout_seconds: default 5
+
+  InvocationConfig
+    - http_method: default POST
+    - content_type: default application/json
+    - body_template: dict[str, str|dict] — maps field names to template expressions
+        Supported template tokens: {task}, {session_id}, {customer_id}, {context}
+        Example: {"message": "{task}", "user": "{customer_id}"}
+        When empty the orchestrator uses the legacy AgentRequest schema.
+    - response_result_path: dot-notation path into the JSON response
+        Example: "result" → resp["result"]
+                 "data.output.text" → resp["data"]["output"]["text"]
+        When empty the orchestrator falls back to resp["result"].
+    - extra_static_headers: non-auth headers always sent (e.g. Accept, X-Api-Version)
+    - timeout_seconds: per-agent override (0 = use global default)
+    - max_retries: per-agent override (-1 = use global default)
+
+  AgentDoc gains health_check_config and invocation_config fields.
 """
 from __future__ import annotations
 from datetime import datetime, timezone
@@ -24,7 +43,9 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
-# ── Auth enumerations ─────────────────────────────────────────────────────────
+# =============================================================================
+# Auth enumerations (unchanged)
+# =============================================================================
 
 class AuthType(str, Enum):
     NONE         = "none"
@@ -34,82 +55,157 @@ class AuthType(str, Enum):
     OAUTH2       = "oauth2"
     CUSTOM       = "custom"
 
-
 class ApiKeyLocation(str, Enum):
     HEADER      = "header"
     QUERY_PARAM = "query_param"
-
 
 class CustomAuthInjectAs(str, Enum):
     HEADER      = "header"
     QUERY_PARAM = "query_param"
 
 
-# ── Auth sub-models ────────────────────────────────────────────────────────────
+# =============================================================================
+# Health check configuration
+# =============================================================================
+
+class HealthCheckType(str, Enum):
+    HTTP = "http"   # GET request, check status code
+    TCP  = "tcp"    # TCP socket connect, no HTTP
+    NONE = "none"   # always treated as healthy — for agents without health endpoints
+
+
+class HealthCheckConfig(BaseModel):
+    """
+    Configures how the registry and orchestrator determine whether an agent is alive.
+
+    If health_check_url is blank:
+      - For HTTP checks: derived as <endpoint_url base>/api/health
+      - For TCP checks: host and port are parsed from endpoint_url
+
+    Leave check_type as "http" for Azure Functions, FastAPI, and similar.
+    Use "tcp" for raw TCP services (gRPC, sockets) with no HTTP interface.
+    Use "none" for agents that don't expose any reachability signal.
+    """
+    check_type:             HealthCheckType = HealthCheckType.HTTP
+
+    # Optional: explicit health check URL.
+    # Blank → auto-derived from endpoint_url by the registry probe logic.
+    health_check_url:       str | None = None
+
+    # HTTP check settings
+    expected_http_status:   int  = 200
+    http_timeout_seconds:   int  = 10
+
+    # TCP check settings (port derived from endpoint_url when 0)
+    tcp_port:               int  = 0
+    tcp_timeout_seconds:    int  = 5
+
+
+# =============================================================================
+# Invocation configuration
+# =============================================================================
+
+class InvocationConfig(BaseModel):
+    """
+    Configures how the orchestrator invokes this agent.
+
+    body_template
+    ─────────────
+    A dict mapping request body field names to template strings.
+    Supported tokens (replaced at invocation time):
+        {task}        — the agent's task string from the plan
+        {session_id}  — the current orchestrator session ID
+        {customer_id} — the customer ID (may be empty string)
+        {context}     — JSON-encoded dict of prior step outputs
+        {step_N}      — output of plan step N (e.g. {step_1})
+
+    Examples:
+        LangChain agent:  {"input": "{task}"}
+        OpenAI-style:     {"messages": [{"role": "user", "content": "{task}"}]}
+        Legacy default:   {"task": "{task}", "session_id": "{session_id}", ...}
+
+    Nested values and lists are supported — the template is rendered by
+    _render_body() in executor.py which recurses into dicts and lists.
+
+    When body_template is empty ({}) the orchestrator uses the legacy
+    AgentRequest Pydantic model (task, session_id, customer_id, context).
+
+    response_result_path
+    ────────────────────
+    Dot-notation path used to extract the agent's result string from the JSON
+    response. Examples:
+        "result"            → resp["result"]
+        "data.text"         → resp["data"]["text"]
+        "choices.0.message.content"  → resp["choices"][0]["message"]["content"]
+
+    When empty, the executor falls back to resp.get("result", str(resp)).
+
+    extra_static_headers
+    ────────────────────
+    Non-auth headers always added to every request to this agent.
+    Examples: {"Accept": "application/json", "X-Api-Version": "2"}
+    Auth headers come from auth_injector — do NOT duplicate them here.
+    """
+    http_method:           str                   = "POST"
+    content_type:          str                   = "application/json"
+
+    # Field mapping: leave empty to use the legacy AgentRequest schema
+    body_template:         dict[str, Any]         = Field(default_factory=dict)
+
+    # Dot-notation extraction path for the result: leave empty for resp["result"]
+    response_result_path:  str                    = ""
+
+    # Non-auth static headers (e.g. Accept, X-Api-Version)
+    extra_static_headers:  dict[str, str]         = Field(default_factory=dict)
+
+    # Per-agent overrides: 0 / -1 = use orchestrator global defaults
+    timeout_seconds:       int                    = 0
+    max_retries:           int                    = -1
+
+
+# =============================================================================
+# Auth sub-models (unchanged from auth-v2)
+# =============================================================================
 
 class CustomAuthEntry(BaseModel):
-    """
-    One injection rule for custom auth.
-    secret_name references Key Vault; value is plain text for non-sensitive data.
-    Exactly one of value or secret_name should be set.
-    """
     key:         str
     inject_as:   CustomAuthInjectAs = CustomAuthInjectAs.HEADER
-    value:       str | None = None        # plain — for non-sensitive values
-    secret_name: str | None = None        # KV ref — for sensitive values
+    value:       str | None = None
+    secret_name: str | None = None
 
 
 class AuthConfig(BaseModel):
-    """
-    Auth configuration stored in Cosmos DB.
-    Contains type, names, locations, and KV secret-name REFERENCES.
-    Actual secret values are NEVER stored here — they live in Key Vault.
-    """
     auth_type: AuthType = AuthType.NONE
 
-    # ── API Key ───────────────────────────────────────────────────────────────
     api_key_location:    ApiKeyLocation | None = None
-    api_key_name:        str | None = None         # header/param name
-    api_key_secret_name: str | None = None         # KV secret name
+    api_key_name:        str | None = None
+    api_key_secret_name: str | None = None
 
-    # ── Bearer Token ──────────────────────────────────────────────────────────
-    bearer_token_secret_name: str | None = None    # KV secret name
+    bearer_token_secret_name: str | None = None
 
-    # ── Basic Auth ────────────────────────────────────────────────────────────
-    basic_auth_username:             str | None = None   # plain — not sensitive
-    basic_auth_password_secret_name: str | None = None   # KV secret name
+    basic_auth_username:             str | None = None
+    basic_auth_password_secret_name: str | None = None
 
-    # ── OAuth2 (Client Credentials) ───────────────────────────────────────────
-    oauth2_token_url:           str | None = None   # token endpoint URL
-    oauth2_client_id:           str | None = None   # client ID (not sensitive)
-    oauth2_client_secret_name:  str | None = None   # KV secret name for client secret
-    oauth2_scopes:              str | None = None   # space-separated scopes, optional
-    oauth2_token_ttl_seconds:   int        = 3600   # cache TTL (default 1 hour)
+    oauth2_token_url:          str | None = None
+    oauth2_client_id:          str | None = None
+    oauth2_client_secret_name: str | None = None
+    oauth2_scopes:             str | None = None
+    oauth2_token_ttl_seconds:  int        = 3600
 
-    # ── Custom ────────────────────────────────────────────────────────────────
     custom_entries: list[CustomAuthEntry] = Field(default_factory=list)
 
 
 class AuthSecrets(BaseModel):
-    """
-    Carries actual SECRET VALUES from the UI to the registry backend.
-    The registry writes each non-empty value into Key Vault under a
-    deterministic name (e.g. agent-<slug>-apikey), then stores only
-    that name in auth_config inside Cosmos.
-
-    UI sends this alongside AgentCreate / AgentUpdate.
-    This model is NEVER stored in Cosmos — it is ephemeral.
-    """
-    api_key_value:             str | None = None
-    bearer_token_value:        str | None = None
-    basic_auth_password_value: str | None = None
+    api_key_value:              str | None = None
+    bearer_token_value:         str | None = None
+    basic_auth_password_value:  str | None = None
     oauth2_client_secret_value: str | None = None
-    # For custom entries: list of values in the same order as custom_entries.
-    # Index alignment: custom_secret_values[0] → custom_entries[0], etc.
-    custom_secret_values:      list[str | None] = Field(default_factory=list)
+    custom_secret_values:       list[str | None] = Field(default_factory=list)
 
 
-# ── Agent status & utility ────────────────────────────────────────────────────
+# =============================================================================
+# Agent status & utility enumerations
+# =============================================================================
 
 class AgentStatus(str, Enum):
     ACTIVE   = "active"
@@ -122,9 +218,6 @@ class UtilityType(str, Enum):
     WATER    = "water"
     MULTI    = "multi"
 
-
-# ── Capability sub-model ──────────────────────────────────────────────────────
-
 class Capability(BaseModel):
     name:          str
     description:   str
@@ -132,7 +225,9 @@ class Capability(BaseModel):
     output_schema: dict[str, Any] = Field(default_factory=dict)
 
 
-# ── Core document ─────────────────────────────────────────────────────────────
+# =============================================================================
+# Core document
+# =============================================================================
 
 class AgentDoc(BaseModel):
     id:            str              = Field(default_factory=_uuid)
@@ -146,15 +241,22 @@ class AgentDoc(BaseModel):
     tags:          list[str]        = Field(default_factory=list)
     capabilities:  list[Capability] = Field(default_factory=list)
     metadata:      dict[str, Any]   = Field(default_factory=dict)
-    auth_config:   AuthConfig       = Field(default_factory=AuthConfig)
-    # Legacy field — kept for backward compat
-    api_key_secret_name: str | None = None
-    # Health tracking
+
+    # Auth
+    auth_config:         AuthConfig          = Field(default_factory=AuthConfig)
+    api_key_secret_name: str | None          = None   # legacy
+
+    # NEW: Health check and invocation configs
+    health_check_config: HealthCheckConfig   = Field(default_factory=HealthCheckConfig)
+    invocation_config:   InvocationConfig    = Field(default_factory=InvocationConfig)
+
+    # Health tracking (populated by ping operations)
     last_health_check_at: str | None = None
     last_health_status:   str | None = None
     last_health_ms:       int | None = None
-    created_at:           str        = Field(default_factory=_now)
-    updated_at:           str        = Field(default_factory=_now)
+
+    created_at:  str = Field(default_factory=_now)
+    updated_at:  str = Field(default_factory=_now)
 
     @field_validator("name")
     @classmethod
@@ -172,7 +274,9 @@ class AgentDoc(BaseModel):
         return v.rstrip("/")
 
 
-# ── Request bodies ────────────────────────────────────────────────────────────
+# =============================================================================
+# Request bodies
+# =============================================================================
 
 class AgentCreate(BaseModel):
     name:          str
@@ -184,10 +288,10 @@ class AgentCreate(BaseModel):
     capabilities:  list[Capability]     = Field(default_factory=list)
     metadata:      dict[str, Any]       = Field(default_factory=dict)
     auth_config:   AuthConfig           = Field(default_factory=AuthConfig)
-    # auth_secrets carries plain values — processed then discarded by registry.py
     auth_secrets:  AuthSecrets | None   = None
-    # Legacy
-    api_key_secret_name: str | None     = None
+    api_key_secret_name: str | None     = None   # legacy
+    health_check_config: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+    invocation_config:   InvocationConfig  = Field(default_factory=InvocationConfig)
 
     @field_validator("endpoint_url")
     @classmethod
@@ -209,6 +313,8 @@ class AgentUpdate(BaseModel):
     auth_config:   AuthConfig | None        = None
     auth_secrets:  AuthSecrets | None       = None
     api_key_secret_name: str | None         = None
+    health_check_config: HealthCheckConfig | None = None
+    invocation_config:   InvocationConfig  | None = None
 
 
 class AgentReplace(BaseModel):
@@ -224,6 +330,8 @@ class AgentReplace(BaseModel):
     auth_config:   AuthConfig           = Field(default_factory=AuthConfig)
     auth_secrets:  AuthSecrets | None   = None
     api_key_secret_name: str | None     = None
+    health_check_config: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+    invocation_config:   InvocationConfig  = Field(default_factory=InvocationConfig)
 
 
 class StatusPatch(BaseModel):
@@ -238,7 +346,9 @@ class CapabilityAdd(BaseModel):
     output_schema: dict[str, Any] = Field(default_factory=dict)
 
 
-# ── Auth models (admin UI login) ──────────────────────────────────────────────
+# =============================================================================
+# Admin UI auth models
+# =============================================================================
 
 class LoginRequest(BaseModel):
     username: str
@@ -254,17 +364,20 @@ class VerifyResponse(BaseModel):
     username: str | None = None
 
 
-# ── Response models ───────────────────────────────────────────────────────────
+# =============================================================================
+# Response models
+# =============================================================================
 
 class HealthCheckResult(BaseModel):
     agent_id:    str
     agent_name:  str
     endpoint:    str
-    status:      str
-    http_code:   int | None  = None
-    response_ms: int | None  = None
-    checked_at:  str         = Field(default_factory=_now)
-    error:       str | None  = None
+    status:      str        # healthy | unhealthy | unreachable
+    check_type:  str        = "http"
+    http_code:   int | None = None
+    response_ms: int | None = None
+    checked_at:  str        = Field(default_factory=_now)
+    error:       str | None = None
 
 
 class PingAllResponse(BaseModel):
@@ -279,6 +392,7 @@ class RegistryStats(BaseModel):
     by_status:            dict[str, int]
     by_utility_type:      dict[str, int]
     by_auth_type:         dict[str, int]
+    by_health_check_type: dict[str, int]
     total_capabilities:   int
     unique_tags:          list[str]
     last_registered_at:   str | None

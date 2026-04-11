@@ -65,6 +65,7 @@ try:
         AgentCreate, AgentReplace, AgentUpdate,
         CapabilityAdd, LoginRequest, StatusPatch,
     )
+    import capability_fetcher
 except Exception as _exc:
     _IMPORT_ERROR = f"{type(_exc).__name__}: {_exc}\n{traceback.format_exc()}"
     log.critical("Startup import failed:\n%s", _IMPORT_ERROR)
@@ -406,6 +407,73 @@ async def list_agents(req: func.HttpRequest) -> func.HttpResponse:
         log.exception("list_agents failed")
         return _err(str(exc), 500)
 
+@app.route(route="agents/capabilities/fetch", methods=["POST"])
+async def fetch_agent_capabilities(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Auto-discover capabilities of a remote agent by calling it with a
+    structured capability-listing prompt.
+
+    This endpoint is used by the React UI before saving a new or edited agent.
+    The admin fills endpoint_url, auth_config, auth_secrets, and invocation_config,
+    then clicks "Auto-fetch capabilities". The response is a parsed list of
+    capabilities that the admin can review and confirm before saving.
+
+    Auth note: auth_secrets carries PLAIN VALUES here (not Key Vault refs) because
+    the agent may not be registered yet. Plain values are used for this single
+    outgoing call and never persisted.
+
+    Request body:
+      {
+        "endpoint_url":      "https://...",
+        "auth_config":       { ... },       // AuthConfig dict
+        "auth_secrets":      { ... },       // AuthSecrets dict with plain values
+        "invocation_config": { ... }        // InvocationConfig dict
+      }
+
+    Success (200):
+      {
+        "capabilities": [{"name": "...", "description": "...", ...}],
+        "raw_response":  "...",
+        "parse_strategy": "...",
+        "warning": null | "..."
+      }
+
+    Error (400 / 502):
+      { "error": "Human-readable reason" }
+    """
+    err = await _guard(req)
+    if err:
+        return err
+    if _IMPORT_ERROR:
+        return _err("Worker startup failed", 503, _IMPORT_ERROR)
+
+    try:
+        body = req.get_json()
+    except Exception:
+        return _err("Invalid JSON body")
+
+    endpoint_url      = (body.get("endpoint_url") or "").strip()
+    auth_config       = body.get("auth_config")       or {}
+    auth_secrets      = body.get("auth_secrets")      or {}
+    invocation_config = body.get("invocation_config") or {}
+
+    if not endpoint_url:
+        return _err("endpoint_url is required")
+
+    try:
+        result = await capability_fetcher.fetch_capabilities(
+            endpoint_url=endpoint_url,
+            auth_config=auth_config,
+            auth_secrets=auth_secrets,
+            invocation_config=invocation_config,
+        )
+        return _json(result)
+    except RuntimeError as exc:
+        # Human-readable errors from capability_fetcher — show to the admin
+        return _err(str(exc), 502)
+    except Exception as exc:
+        log.exception("fetch_agent_capabilities: unexpected error")
+        return _err(f"Unexpected error: {exc}", 500)
 
 @app.route(route="agents/{agent_id}", methods=["GET"])
 async def get_agent(req: func.HttpRequest) -> func.HttpResponse:
