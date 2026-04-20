@@ -94,4 +94,4 @@ src/data/vector_store/
 
 # Local Postman workspace files
 .postman/
-postman/
+postman/scripts/logs/
