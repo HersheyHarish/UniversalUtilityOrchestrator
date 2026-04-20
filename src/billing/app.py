@@ -145,11 +145,7 @@ def try_llm_summary(query: str, facts: dict[str, Any], citations: list[dict[str,
         "Avoid headings, markdown bullets, and vague phrases like 'review your account activity' or 'contact customer service' unless a dispute policy clearly applies."
     )
     try:
-<<<<<<< HEAD
         llm = ChatOllama(model=model_name, temperature=0, base_url=ollama_base_url)
-=======
-        llm = ChatOllama(model=model_name, temperature=0, timeout=120)
->>>>>>> 19086f9 (Added working demo build, modified agentInvoke to support dynamic JSON payloads)
         response = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
         return response.content.strip() if isinstance(response.content, str) else None
     except Exception as exc:
@@ -195,13 +191,13 @@ def handle_billing_request(payload: BillingPayload) -> dict[str, Any]:
     return response
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health() -> dict[str, str]:
     """Simple readiness endpoint for local testing and teammate integration."""
     return {"status": "ok", "agent": "billing_agent"}
 
 
-@app.post("/billing_agent")
+@app.post("/api/billing_agent")
 def billing_agent(payload: BillingPayload) -> dict[str, Any]:
     """HTTP endpoint that returns a billing explanation for the supplied query."""
     try:
