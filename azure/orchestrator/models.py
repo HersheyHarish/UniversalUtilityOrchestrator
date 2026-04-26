@@ -85,7 +85,7 @@ class AgentResponse(BaseModel):
 class SessionDoc(BaseModel):
     """
     Stored in the `sessions` container.
-    partition_key = session_id  (self-partition — all data for one session together)
+    partition_key = session_id  (stored in the partition_key field)
     """
     id:            str = Field(default_factory=_uuid)
     partition_key: str = ""          # set to id after creation
@@ -105,7 +105,7 @@ class SessionDoc(BaseModel):
 class MessageDoc(BaseModel):
     """
     Stored in the `messages` container.
-    partition_key = session_id  (co-locate all messages for a session)
+    partition_key = session_id  (stored in the partition_key field)
     """
     id:          str = Field(default_factory=_uuid)
     partition_key: str           # = session_id

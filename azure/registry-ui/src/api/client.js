@@ -5,8 +5,9 @@
  * Session token is read from sessionStorage on every call.
  */
 
-const BASE      = import.meta.env.VITE_REGISTRY_URL || "";
-const FUNC_CODE = import.meta.env.VITE_FUNC_CODE    || "";
+const runtimeConfig = window.__UUA_RUNTIME_CONFIG__ || {};
+const BASE      = runtimeConfig.VITE_REGISTRY_URL || import.meta.env.VITE_REGISTRY_URL || "";
+const FUNC_CODE = runtimeConfig.VITE_FUNC_CODE    || import.meta.env.VITE_FUNC_CODE    || "";
 
 function token() {
   return sessionStorage.getItem("session_token") || "";
@@ -21,6 +22,16 @@ function url(path, params = {}) {
   return u.toString();
 }
 
+function messageFrom(data, fallback) {
+  if (typeof data === "object" && data) return data.error || data.detail || fallback;
+  return data || fallback;
+}
+
+function isSessionAuthFailure(path, msg) {
+  if (path.startsWith("/api/auth/verify") || path.startsWith("/api/auth/logout")) return true;
+  return /session|x-session-token|authentication required|log in/i.test(msg || "");
+}
+
 async function req(method, path, { body, params } = {}) {
   const headers = { "Content-Type": "application/json" };
   const t = token();
@@ -32,18 +43,17 @@ async function req(method, path, { body, params } = {}) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 401) {
+  const ct   = res.headers.get("content-type") || "";
+  const data = ct.includes("application/json") ? await res.json() : await res.text();
+  const msg  = messageFrom(data, `HTTP ${res.status}`);
+
+  if (res.status === 401 && isSessionAuthFailure(path, msg)) {
     sessionStorage.clear();
     window.location.href = "/login";
     throw new Error("Session expired");
   }
 
-  const ct   = res.headers.get("content-type") || "";
-  const data = ct.includes("application/json") ? await res.json() : await res.text();
-
   if (!res.ok) {
-    const msg = (typeof data === "object" ? data?.error || data?.detail : data)
-      || `HTTP ${res.status}`;
     throw new Error(msg);
   }
   return data;

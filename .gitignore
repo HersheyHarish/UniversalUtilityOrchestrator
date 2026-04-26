@@ -95,3 +95,8 @@ src/data/vector_store/
 # Local Postman workspace files
 .postman/
 postman/
+
+# ── Debug & Runtime ──────────────────────────────────────────────────────────
+*.pid
+llm_crash_debug.txt
+test_llm_hang.py

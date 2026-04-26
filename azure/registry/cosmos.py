@@ -14,7 +14,10 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
+import urllib3
 from typing import Any
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from azure.cosmos.aio import CosmosClient
 from azure.cosmos import exceptions as cosmos_exc
@@ -28,12 +31,26 @@ _AGENTS_PK  = "agents"
 
 # One credential instance — reused across all calls to prevent
 # aiohttp ClientSession leaks.
-_CREDENTIAL = DefaultAzureCredential()
+_CREDENTIAL: DefaultAzureCredential | None = None
 
 
 # ── Client factory ────────────────────────────────────────────────────────────
 
 def _client() -> CosmosClient:
+    app_env = os.environ.get("APP_ENV", "local").strip().lower()
+    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    if app_env in {"prod", "production"} and use_local:
+        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
+
+    if use_local:
+        return CosmosClient(
+            _ENDPOINT, 
+            credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+            connection_verify=False
+        )
+    global _CREDENTIAL
+    if _CREDENTIAL is None:
+        _CREDENTIAL = DefaultAzureCredential()
     return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
 
 
