@@ -32,11 +32,11 @@ from models import LoginResponse, VerifyResponse
 
 log = logging.getLogger(__name__)
 
-_KV_URL        = os.environ["KEY_VAULT_URL"]
+_KV_URL        = os.environ.get("KEY_VAULT_URL", "")
 _SESSION_TTL_H = int(os.environ.get("SESSION_TTL_HOURS", "8"))
 
-# Shared credential — same pattern as cosmos.py to avoid aiohttp leaks
-_KV_CREDENTIAL = DefaultAzureCredential()
+# Shared credential — created lazily to avoid import-time aiohttp session leaks
+_KV_CREDENTIAL: DefaultAzureCredential | None = None
 _secret_cache: dict[str, str] = {}
 
 
@@ -44,7 +44,20 @@ _secret_cache: dict[str, str] = {}
 
 async def _get_secret(name: str) -> str:
     """Fetch a secret from Key Vault, caching it for the lifetime of this instance."""
+    app_env = os.environ.get("APP_ENV", "local").strip().lower()
+    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    if app_env in {"prod", "production"} and use_local:
+        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
+
+    if use_local:
+        if name == "admin-username": return "admin"
+        if name == "admin-password": return "$2b$12$H97DNnZIrhu070DIyJcNA.tNCbtX8Qqpv7KCec0iTbrUBQ7zjgOfO" # hash of 'password'
+        return ""
+
     if name not in _secret_cache:
+        global _KV_CREDENTIAL
+        if _KV_CREDENTIAL is None:
+            _KV_CREDENTIAL = DefaultAzureCredential()
         async with SecretClient(_KV_URL, _KV_CREDENTIAL) as kv:
             secret = await kv.get_secret(name)
             _secret_cache[name] = secret.value

@@ -14,8 +14,9 @@ System routes (ANONYMOUS):
   GET   /api/agents/dashboard HTML dashboard for browser viewing
 
 All other routes require:
-  1. Function-level host key  →  ?code=<key>  or  x-functions-key header
-  2. Valid session token       →  X-Session-Token header
+  1. HTTP auth level configured by REGISTRY_HTTP_AUTH_LEVEL
+     (FUNCTION by default, ANONYMOUS in local emulator mode)
+  2. Valid session token  →  X-Session-Token header
 
 Registry — core CRUD:
   POST   /api/agents                   Register new agent (409 if name exists)
@@ -61,6 +62,7 @@ try:
     import auth
     import cosmos                                       # noqa: F401  (validates env on import)
     import registry
+    import runtime_contract
     from models import (
         AgentCreate, AgentReplace, AgentUpdate,
         CapabilityAdd, LoginRequest, StatusPatch,
@@ -71,7 +73,32 @@ except Exception as _exc:
     log.critical("Startup import failed:\n%s", _IMPORT_ERROR)
 
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+_AUTH_LEVEL_BY_NAME: dict[str, func.AuthLevel] = {
+    "ANONYMOUS": func.AuthLevel.ANONYMOUS,
+    "FUNCTION":  func.AuthLevel.FUNCTION,
+    "ADMIN":     func.AuthLevel.ADMIN,
+}
+
+_default_level = (
+    "ANONYMOUS"
+    if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    else "FUNCTION"
+)
+_configured_level = os.environ.get("REGISTRY_HTTP_AUTH_LEVEL", _default_level).upper()
+
+app = func.FunctionApp(
+    http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION)
+)
+
+_CONFIG_ERRORS: list[str] = []
+if not _IMPORT_ERROR:
+    try:
+        _CONFIG_ERRORS = runtime_contract.validate_runtime_contract()
+        if _CONFIG_ERRORS:
+            log.critical("Runtime contract validation failed: %s", "; ".join(_CONFIG_ERRORS))
+    except Exception as _exc:
+        _CONFIG_ERRORS = [f"Runtime contract check failed: {_exc}"]
+        log.critical("Runtime contract validation raised: %s", _exc)
 
 
 # ── Response helpers ──────────────────────────────────────────────────────────
@@ -98,6 +125,13 @@ def _err(msg: str, status: int = 400, detail: str | None = None) -> func.HttpRes
 def _html(body: str, status: int = 200) -> func.HttpResponse:
     return func.HttpResponse(body, status_code=status, mimetype="text/html")
 
+def _runtime_error_response() -> func.HttpResponse | None:
+    if _IMPORT_ERROR:
+        return _err("Worker startup failed", 503, _IMPORT_ERROR)
+    if _CONFIG_ERRORS:
+        return _err("Runtime configuration is invalid", 503, "; ".join(_CONFIG_ERRORS))
+    return None
+
 
 def _token_from(req: func.HttpRequest) -> str:
     """Extract session token from X-Session-Token header or ?session_token= param."""
@@ -114,8 +148,9 @@ async def _guard(req: func.HttpRequest) -> func.HttpResponse | None:
     Returns None when the session is valid (caller proceeds).
     Returns an error HttpResponse when the session is missing or invalid.
     """
-    if _IMPORT_ERROR:
-        return _err("Worker startup failed", 503, _IMPORT_ERROR)
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
 
     token  = _token_from(req)
     result = await auth.validate(token)
@@ -148,8 +183,9 @@ async def auth_login(req: func.HttpRequest) -> func.HttpResponse:
     Failure response (401):
       { "error": "Invalid credentials" }
     """
-    if _IMPORT_ERROR:
-        return _err("Worker startup failed", 503, _IMPORT_ERROR)
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
 
     try:
         body = req.get_json()
@@ -178,8 +214,9 @@ async def auth_logout(req: func.HttpRequest) -> func.HttpResponse:
 
     Always returns 200 regardless of whether the token existed.
     """
-    if _IMPORT_ERROR:
-        return _err("Worker startup failed", 503, _IMPORT_ERROR)
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
 
     token = _token_from(req)
     if not token:
@@ -207,8 +244,9 @@ async def auth_verify(req: func.HttpRequest) -> func.HttpResponse:
       { "valid": true,  "username": "admin" }   — session is valid
       { "valid": false, "username": null   }   — expired or not found
     """
-    if _IMPORT_ERROR:
-        return _err("Worker startup failed", 503, _IMPORT_ERROR)
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
 
     token  = _token_from(req)
     result = await auth.validate(token)
@@ -232,21 +270,33 @@ async def health(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({"status": "unhealthy", "import_error": _IMPORT_ERROR}),
             status_code=503, mimetype="application/json",
         )
-    missing = [v for v in ["COSMOS_ENDPOINT", "KEY_VAULT_URL"] if not os.environ.get(v)]
-    if missing:
+    if _CONFIG_ERRORS:
         return func.HttpResponse(
-            json.dumps({"status": "misconfigured", "missing_settings": missing}),
+            json.dumps({"status": "misconfigured", "errors": _CONFIG_ERRORS}),
             status_code=503, mimetype="application/json",
         )
-    return _json({"status": "ok", "service": "registry-api", "time": datetime.utcnow().isoformat()})
+    return _json({
+        "status": "ok",
+        "service": "registry-api",
+        "time": datetime.utcnow().isoformat(),
+        "build": {
+            "version": os.environ.get("BUILD_VERSION", "dev"),
+            "sha": os.environ.get("BUILD_SHA", "unknown"),
+        },
+    })
 
 
 @app.route(route="agents/dashboard", methods=["GET"],
            auth_level=func.AuthLevel.ANONYMOUS)
 async def dashboard(req: func.HttpRequest) -> func.HttpResponse:
     """Browser-viewable HTML dashboard. Auto-refreshes every 60 s."""
-    if _IMPORT_ERROR:
-        return _html(f"<pre>Import error: {_IMPORT_ERROR}</pre>", 503)
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        try:
+            payload = json.loads(runtime_err.get_body().decode("utf-8"))
+        except Exception:
+            payload = {"error": "Runtime configuration is invalid"}
+        return _html(f"<pre>{json.dumps(payload, indent=2)}</pre>", 503)
     try:
         all_agents = await cosmos.agent_list()
         stats_obj  = await registry.get_stats()
@@ -444,8 +494,6 @@ async def fetch_agent_capabilities(req: func.HttpRequest) -> func.HttpResponse:
     err = await _guard(req)
     if err:
         return err
-    if _IMPORT_ERROR:
-        return _err("Worker startup failed", 503, _IMPORT_ERROR)
 
     try:
         body = req.get_json()

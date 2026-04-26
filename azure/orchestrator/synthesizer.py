@@ -11,27 +11,19 @@ import logging
 import os
 
 from openai import AsyncOpenAI
-from azure.keyvault.secrets.aio import SecretClient
-from azure.identity.aio import DefaultAzureCredential
 
 from models import ExecutionPlan, AgentResponse
+from secret_provider import get_secret
 
 log = logging.getLogger(__name__)
 
 _OAI_ENDPOINT   = os.environ["AZURE_OPENAI_ENDPOINT"]
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
-_KV_URL         = os.environ["KEY_VAULT_URL"]
-_OPENAI_SECRET  = os.environ.get("OPENAI_SECRET_NAME", "openai-key")
-
-_KV_CREDENTIAL  = DefaultAzureCredential()
-_secret_cache:  dict[str, str] = {}
+_OPENAI_SECRET  = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
 
 
 async def _get_secret(name: str) -> str:
-    if name not in _secret_cache:
-        async with SecretClient(_KV_URL, _KV_CREDENTIAL) as kv:
-            _secret_cache[name] = (await kv.get_secret(name)).value
-    return _secret_cache[name]
+    return await get_secret(name, local_env_fallback="AZURE_OPENAI_API_KEY")
 
 
 _SYSTEM = """You are a response synthesis agent for a utility company support platform.

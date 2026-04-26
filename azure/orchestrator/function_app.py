@@ -25,12 +25,38 @@ try:
     import planner
     import executor
     import synthesizer
+    import runtime_contract
 except Exception as _e:
     _IMPORT_ERROR = f"{type(_e).__name__}: {_e}\n{traceback.format_exc()}"
     log.critical("Startup import failed: %s", _IMPORT_ERROR)
 
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+_AUTH_LEVEL_BY_NAME: dict[str, func.AuthLevel] = {
+    "ANONYMOUS": func.AuthLevel.ANONYMOUS,
+    "FUNCTION":  func.AuthLevel.FUNCTION,
+    "ADMIN":     func.AuthLevel.ADMIN,
+}
+
+_default_level = (
+    "ANONYMOUS"
+    if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    else "FUNCTION"
+)
+_configured_level = os.environ.get("ORCHESTRATOR_HTTP_AUTH_LEVEL", _default_level).upper()
+
+app = func.FunctionApp(
+    http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION)
+)
+
+_CONFIG_ERRORS: list[str] = []
+if not _IMPORT_ERROR:
+    try:
+        _CONFIG_ERRORS = runtime_contract.validate_runtime_contract()
+        if _CONFIG_ERRORS:
+            log.critical("Runtime contract validation failed: %s", "; ".join(_CONFIG_ERRORS))
+    except Exception as _e:
+        _CONFIG_ERRORS = [f"Runtime contract check failed: {_e}"]
+        log.critical("Runtime contract validation raised: %s", _e)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -53,6 +79,12 @@ def _err(msg: str, status: int = 400, detail: str | None = None) -> func.HttpRes
         mimetype="application/json",
     )
 
+def _runtime_error_response() -> func.HttpResponse | None:
+    if _IMPORT_ERROR:
+        return _err("Worker failed to start", 503, _IMPORT_ERROR)
+    if _CONFIG_ERRORS:
+        return _err("Runtime configuration is invalid", 503, "; ".join(_CONFIG_ERRORS))
+    return None
 
 # ── GET /api/health  (ANONYMOUS — no key required) ───────────────────────────
 
@@ -71,31 +103,30 @@ async def health(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
         )
 
-    missing = [
-        v for v in [
-            "COSMOS_ENDPOINT",
-            "AZURE_OPENAI_ENDPOINT",
-            "KEY_VAULT_URL",
-        ]
-        if not os.environ.get(v)
-    ]
-    if missing:
+    if _CONFIG_ERRORS:
         return func.HttpResponse(
-            json.dumps({"status": "misconfigured",
-                        "missing_settings": missing}),
+            json.dumps({"status": "misconfigured", "errors": _CONFIG_ERRORS}),
             status_code=503,
             mimetype="application/json",
         )
 
-    return _ok({"status": "ok", "service": "orchestrator"})
+    return _ok({
+        "status": "ok",
+        "service": "orchestrator",
+        "build": {
+            "version": os.environ.get("BUILD_VERSION", "dev"),
+            "sha": os.environ.get("BUILD_SHA", "unknown"),
+        },
+    })
 
 
 # ── POST /api/chat ─────────────────────────────────────────────────────────────
 
 @app.route(route="chat", methods=["POST"])
 async def chat(req: func.HttpRequest) -> func.HttpResponse:
-    if _IMPORT_ERROR:
-        return _err("Worker failed to start", 503, _IMPORT_ERROR)
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
 
     try:
         body = req.get_json()
@@ -172,8 +203,9 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="sessions/{session_id}", methods=["GET"])
 async def get_session(req: func.HttpRequest) -> func.HttpResponse:
-    if _IMPORT_ERROR:
-        return _err("Worker failed to start", 503, _IMPORT_ERROR)
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
 
     session_id = req.route_params.get("session_id")
     try:

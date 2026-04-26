@@ -13,7 +13,10 @@ aiohttp ClientSession which was never closed, producing the
 from __future__ import annotations
 import logging
 import os
+import urllib3
 from typing import Any
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from azure.cosmos.aio import CosmosClient
 from azure.cosmos import exceptions as cosmos_exc
@@ -29,7 +32,7 @@ _DATABASE = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
 # Single credential instance — created once at module load, reused for every
 # Cosmos call. DefaultAzureCredential internally caches its token and only
 # fetches a new one when the current token is about to expire.
-_CREDENTIAL = DefaultAzureCredential()
+_CREDENTIAL: DefaultAzureCredential | None = None
 
 
 # ── Low-level helpers ─────────────────────────────────────────────────────────
@@ -40,6 +43,20 @@ def _client() -> CosmosClient:
     Used as `async with _client() as c:` — the client is closed after each
     block but the underlying credential (and its token cache) persists.
     """
+    app_env = os.environ.get("APP_ENV", "local").strip().lower()
+    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    if app_env in {"prod", "production"} and use_local:
+        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
+
+    if use_local:
+        return CosmosClient(
+            _ENDPOINT, 
+            credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+            connection_verify=False
+        )
+    global _CREDENTIAL
+    if _CREDENTIAL is None:
+        _CREDENTIAL = DefaultAzureCredential()
     return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
 
 

@@ -1,0 +1,117 @@
+
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: azurite
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+
+  cosmos:
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:latest
+    container_name: cosmos_emulator
+    platform: linux/amd64
+    ports:
+      - "8081:8081"
+      - "10251-10254:10251-10254"
+    mem_limit: 3g
+    cpus: 2.0
+    environment:
+      - AZURE_COSMOS_EMULATOR_PARTITION_COUNT=5
+      - AZURE_COSMOS_EMULATOR_ENABLE_DATA_EXPLORER=true
+    healthcheck:
+      test: ["CMD", "curl", "-kf", "https://localhost:8081/_explorer/emulator.pem"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  cosmos-init:
+    build:
+      context: ./registry
+      dockerfile: Dockerfile
+    container_name: cosmos_init
+    platform: linux/amd64
+    depends_on:
+      cosmos:
+        condition: service_healthy
+    env_file:
+      - ./orchestrator/.env
+    environment:
+      - USE_LOCAL_EMULATORS=true
+      - COSMOS_ENDPOINT=https://cosmos:8081/
+      - COSMOS_DATABASE=utility_agent_db
+    command: ["python", "/home/site/wwwroot/init_cosmos_emulator.py"]
+
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: azure_orchestrator
+    platform: linux/amd64
+    depends_on:
+      - cosmos
+      - azurite
+      - cosmos-init
+    ports:
+      # Exposes standard Azure Function port 7071
+      - "7071:80"
+    env_file:
+      - ./orchestrator/.env
+    volumes:
+      - ./orchestrator:/home/site/wwwroot
+    environment:
+      - APP_ENV=local
+      - USE_LOCAL_EMULATORS=true
+      - ORCHESTRATOR_STRICT_MODE=false
+      - COSMOS_ENDPOINT=https://cosmos:8081/
+      - COSMOS_DATABASE=utility_agent_db
+      - ORCHESTRATOR_HTTP_AUTH_LEVEL=ANONYMOUS
+      - BUILD_VERSION=dev
+      - BUILD_SHA=local
+
+  registry:
+    build:
+      context: ./registry
+      dockerfile: Dockerfile
+    container_name: azure_registry
+    platform: linux/amd64
+    depends_on:
+      - cosmos
+      - azurite
+      - cosmos-init
+    ports:
+      # Exposes registry API on 7072
+      - "7072:80"
+    env_file:
+      - ./orchestrator/.env
+    volumes:
+      - ./registry:/home/site/wwwroot
+    environment:
+      - APP_ENV=local
+      - USE_LOCAL_EMULATORS=true
+      - REGISTRY_STRICT_MODE=false
+      - COSMOS_ENDPOINT=https://cosmos:8081/
+      - COSMOS_DATABASE=utility_agent_db
+      - REGISTRY_HTTP_AUTH_LEVEL=ANONYMOUS
+      - CONTAINER_NAME=azure_registry
+      - CORS_ALLOWED_ORIGINS=["http://localhost:5173","http://localhost:3000"]
+      - CORS_SUPPORT_CREDENTIALS=true
+      - BUILD_VERSION=dev
+      - BUILD_SHA=local
+
+  registry-ui:
+    build:
+      context: ./registry-ui
+      dockerfile: Dockerfile
+    container_name: azure_registry_ui
+    ports:
+      - "5173:3000"
+    environment:
+      # VITE_ vars are baked in at build time. Since we run a dev server with a mounted volume, 
+      # restarting the dev server container picks up env changes.
+      - VITE_REGISTRY_URL=http://localhost:7072
+      - VITE_FUNC_CODE=
+    volumes:
+      - ./registry-ui:/app
+      - /app/node_modules
