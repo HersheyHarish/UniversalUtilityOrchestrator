@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from azure.orchestrator.runtime_contract import validate_runtime_contract
+import importlib.util
+from pathlib import Path
+
+def _load_validate_func():
+    path = Path(__file__).resolve().parents[2] / "azure" / "orchestrator" / "runtime_contract.py"
+    spec = importlib.util.spec_from_file_location("orchestrator_runtime_contract", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.validate_runtime_contract
+
+validate_runtime_contract = _load_validate_func()
 
 
 def test_prod_rejects_local_mode() -> None:

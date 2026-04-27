@@ -31,7 +31,7 @@ jobs:
 
       - name: Run Unit Tests
         run: |
-          pytest -q tests/runtime_contract
+          PYTHONPATH="." pytest -q tests/runtime_contract
           PYTHONPATH="azure/orchestrator" pytest tests/orchestrator/ -v
           PYTHONPATH="azure/registry" pytest tests/registry/ -v
 
