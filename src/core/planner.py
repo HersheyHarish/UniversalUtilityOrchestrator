@@ -40,8 +40,7 @@ class PlanningService:
             fallback = self._fallback_plan(user_query, registry)
             fallback.goal = f"Failure: {str(exc)}"
             # Save stack trace to local file for debug since func start is in user window
-            with open("llm_crash_debug.txt", "w") as f:
-                f.write(error_details)
+            logger.error(f"LLM Planner Crash Details: \n{error_details}")
             return fallback
 
     def _build_prompt(self, user_query: str, registry: AgentRegistry) -> list[Any]:
