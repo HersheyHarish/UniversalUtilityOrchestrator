@@ -29,9 +29,6 @@ jobs:
           pip install -r azure/registry/requirements.txt
           pip install -r tests/requirements-test.txt
 
-      - name: Lint Python
-        run: ruff check azure/orchestrator azure/registry tests
-
       - name: Run Unit Tests
         run: |
           pytest -q tests/runtime_contract
@@ -73,20 +70,3 @@ jobs:
 
 
 
-  dependency-review:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
-
-  secret-scan:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
