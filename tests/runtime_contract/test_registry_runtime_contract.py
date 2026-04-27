@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.append(str(Path(__file__).resolve().parents[2] / "azure" / "registry"))
-
-from runtime_contract import validate_runtime_contract
+from azure.registry.runtime_contract import validate_runtime_contract
 
 
 def test_registry_prod_rejects_local_mode() -> None:
