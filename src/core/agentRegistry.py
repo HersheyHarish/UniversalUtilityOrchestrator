@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+
 @dataclass
 class AgentDefinition:
     name: str
@@ -25,6 +26,18 @@ class AgentDefinition:
             input_schema=payload.get("input_schema", {}),
             timeout_seconds=int(payload.get("timeout_seconds", 30)),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize back to a JSON-compatible dict for persistence."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "capabilities": self.capabilities,
+            "endpoint": self.endpoint,
+            "input_schema": self.input_schema,
+            "timeout_seconds": self.timeout_seconds,
+        }
+
 
 class AgentRegistry:
     def __init__(self, agents: list[AgentDefinition], registry_path: Path | None = None):
@@ -69,6 +82,59 @@ class AgentRegistry:
         scored_agents.sort(key=lambda item: item[0], reverse=True)
         top_score, top_agent = scored_agents[0]
         return top_agent if top_score > 0 else None
+
+    # ── Plug-and-play: add / remove / persist ────────────────────────────
+
+    def add_agent(self, agent_dict: dict[str, Any], persist: bool = False) -> None:
+        """Register a new agent. Raises ValueError on duplicate name."""
+        name = agent_dict.get("name", "")
+        if self.get(name):
+            raise ValueError(f"Agent '{name}' is already registered.")
+        self.agents.append(AgentDefinition.from_dict(agent_dict))
+        if persist:
+            self._persist()
+
+    def remove_agent(self, name: str, persist: bool = False) -> None:
+        """Unregister an agent by name. Raises ValueError if not found."""
+        original_count = len(self.agents)
+        self.agents = [a for a in self.agents if a.name != name]
+        if len(self.agents) == original_count:
+            raise ValueError(f"Agent '{name}' not found in registry.")
+        if persist:
+            self._persist()
+
+    def _persist(self) -> None:
+        """Write the current agent list back to the JSON registry file."""
+        if self.registry_path is None:
+            raise RuntimeError("Cannot persist: no registry_path set.")
+
+        # Preserve full structure from disk, only replace the agents list
+        try:
+            with self.registry_path.open("r", encoding="utf-8") as fh:
+                existing = json.load(fh)
+        except (FileNotFoundError, json.JSONDecodeError):
+            existing = {}
+
+        existing["agents"] = [self._agent_to_full_dict(a) for a in self.agents]
+
+        with self.registry_path.open("w", encoding="utf-8") as fh:
+            json.dump(existing, fh, indent=4, ensure_ascii=False)
+            fh.write("\n")
+
+    @staticmethod
+    def _agent_to_full_dict(agent: AgentDefinition) -> dict[str, Any]:
+        """Convert an AgentDefinition back to the full JSON dict format."""
+        d: dict[str, Any] = {
+            "name": agent.name,
+            "description": agent.description,
+            "capabilities": agent.capabilities,
+            "endpoint": agent.endpoint,
+            "timeout_seconds": agent.timeout_seconds,
+            "input_schema": agent.input_schema,
+        }
+        return d
+
+    # ── Scoring helpers ──────────────────────────────────────────────────
 
     def _match_score(self, required: list[str], offered: list[str]) -> float:
         """

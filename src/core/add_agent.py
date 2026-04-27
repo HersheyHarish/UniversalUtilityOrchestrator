@@ -158,7 +158,7 @@ def _interactive_add(registry_path: Path) -> None:
 
 def _do_add(registry_path: Path, agent_dict: dict) -> None:
     sys.path.insert(0, str(_THIS_DIR))
-    from orchestrator import AgentRegistry  # noqa: PLC0415 – local import by design
+    from agentRegistry import AgentRegistry  # noqa: PLC0415 – local import by design
 
     registry = AgentRegistry.load(registry_path) if registry_path.exists() else AgentRegistry([], registry_path)
     registry.registry_path = registry_path
@@ -168,7 +168,7 @@ def _do_add(registry_path: Path, agent_dict: dict) -> None:
 
 def _do_remove(registry_path: Path, name: str) -> None:
     sys.path.insert(0, str(_THIS_DIR))
-    from orchestrator import AgentRegistry  # noqa: PLC0415
+    from agentRegistry import AgentRegistry  # noqa: PLC0415
 
     if not registry_path.exists():
         print(f"[Error] Registry not found: {registry_path}", file=sys.stderr)
