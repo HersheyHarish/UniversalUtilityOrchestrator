@@ -1,6 +1,7 @@
 """
 runtime_contract.py — runtime mode validation for registry service.
 """
+
 from __future__ import annotations
 
 import os

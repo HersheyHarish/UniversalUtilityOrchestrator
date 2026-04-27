@@ -8,26 +8,28 @@ New in this version:
   - _extract_result(): walks response_result_path to find the result string
   - _call_agent():     uses invocation_config for method, content-type, body, timeout
 """
+
 from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import os
 from typing import Any
 
-import httpx
-
 import auth_injector
+import httpx
 
 log = logging.getLogger(__name__)
 
-_GLOBAL_TIMEOUT   = float(os.environ.get("AGENT_TIMEOUT_SECS", "45"))
+_GLOBAL_TIMEOUT = float(os.environ.get("AGENT_TIMEOUT_SECS", "45"))
 _GLOBAL_MAX_RETRY = int(os.environ.get("AGENT_MAX_RETRIES", "2"))
 
 
 # =============================================================================
 # Template rendering
 # =============================================================================
+
 
 def _render_value(val: Any, ctx: dict[str, Any]) -> Any:
     """
@@ -76,11 +78,11 @@ def _render_body(template: Any, ctx: dict[str, Any]) -> Any:
 
 def _build_body(
     invocation_config: dict[str, Any],
-    task:              str,
-    session_id:        str,
-    customer_id:       str | None,
-    prior_outputs:     dict[int, str],
-    context_note:      str,
+    task: str,
+    session_id: str,
+    customer_id: str | None,
+    prior_outputs: dict[int, str],
+    context_note: str,
 ) -> dict[str, Any]:
     """
     Build the HTTP request body.
@@ -92,8 +94,8 @@ def _build_body(
 
     # Build context dict for template rendering
     ctx: dict[str, Any] = {
-        "task":        task,
-        "session_id":  session_id,
+        "task": task,
+        "session_id": session_id,
         "customer_id": customer_id or "",
     }
     # Step outputs available as {step_1}, {step_2}, etc.
@@ -113,10 +115,10 @@ def _build_body(
 
     # Legacy default — matches the original AgentRequest Pydantic model
     return {
-        "task":        task,
-        "session_id":  session_id,
+        "task": task,
+        "session_id": session_id,
         "customer_id": customer_id,
-        "context":     context_dict,
+        "context": context_dict,
     }
 
 
@@ -151,7 +153,8 @@ def _extract_result(response_body: dict[str, Any], result_path: str) -> str:
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         log.warning(
             "response_result_path '%s' failed navigation (%s) — returning full response",
-            result_path, exc,
+            result_path,
+            exc,
         )
         return json.dumps(response_body)
 
@@ -160,24 +163,25 @@ def _extract_result(response_body: dict[str, Any], result_path: str) -> str:
 # Single agent call
 # =============================================================================
 
+
 async def _call_agent(
-    step:          Any,
-    session_id:    str,
-    customer_id:   str | None,
+    step: Any,
+    session_id: str,
+    customer_id: str | None,
     prior_outputs: dict[int, str],
 ) -> dict[str, Any]:
     """
     Build, auth-inject, and send the HTTP request to a remote agent.
     Returns a normalised dict: { result, actions_taken, suggestions, metadata }.
     """
-    inv  = step.invocation_config or {}
-    method       = (inv.get("http_method") or "POST").upper()
+    inv = step.invocation_config or {}
+    method = (inv.get("http_method") or "POST").upper()
     content_type = inv.get("content_type") or "application/json"
-    timeout      = inv.get("timeout_seconds") or 0
-    max_retries  = inv.get("max_retries", -1)
+    timeout = inv.get("timeout_seconds") or 0
+    max_retries = inv.get("max_retries", -1)
 
-    effective_timeout   = float(timeout)  if timeout   > 0 else _GLOBAL_TIMEOUT
-    effective_max_retry = max_retries     if max_retries >= 0 else _GLOBAL_MAX_RETRY
+    effective_timeout = float(timeout) if timeout > 0 else _GLOBAL_TIMEOUT
+    effective_max_retry = max_retries if max_retries >= 0 else _GLOBAL_MAX_RETRY
 
     body = _build_body(
         invocation_config=inv,
@@ -204,8 +208,8 @@ async def _call_agent(
     }
 
     request_kwargs: dict[str, Any] = {
-        "method":  method,
-        "url":     step.agent_url,
+        "method": method,
+        "url": step.agent_url,
         "headers": base_headers,
     }
     # Attach body based on content type
@@ -228,15 +232,14 @@ async def _call_agent(
             result_text = _extract_result(resp_body, result_path)
 
             return {
-                "result":        result_text,
+                "result": result_text,
                 "actions_taken": resp_body.get("actions_taken", []),
-                "suggestions":   resp_body.get("suggestions", []),
-                "metadata":      resp_body.get("metadata", {}),
+                "suggestions": resp_body.get("suggestions", []),
+                "metadata": resp_body.get("metadata", {}),
             }
 
         except httpx.HTTPStatusError as e:
-            log.warning("Agent %s HTTP %s (attempt %d)", step.agent_name,
-                        e.response.status_code, attempt)
+            log.warning("Agent %s HTTP %s (attempt %d)", step.agent_name, e.response.status_code, attempt)
             last_exc = e
             if e.response.status_code < 500:
                 break
@@ -244,23 +247,22 @@ async def _call_agent(
             log.warning("Agent %s unreachable (attempt %d): %s", step.agent_name, attempt, e)
             last_exc = e
             if attempt <= effective_max_retry:
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
 
-    raise RuntimeError(
-        f"Agent {step.agent_name} failed after {effective_max_retry + 1} attempts: {last_exc}"
-    )
+    raise RuntimeError(f"Agent {step.agent_name} failed after {effective_max_retry + 1} attempts: {last_exc}")
 
 
 # =============================================================================
 # Main execution loop
 # =============================================================================
 
+
 async def execute_plan(plan: Any, session_id: str, customer_id: str | None) -> dict:
     import memory
 
-    results:       dict[int, dict] = {}
-    failed:        set[int]        = set()
-    prior_outputs: dict[int, str]  = {}
+    results: dict[int, dict] = {}
+    failed: set[int] = set()
+    prior_outputs: dict[int, str] = {}
 
     await memory.update_session(session_id, status="executing")
 
@@ -269,8 +271,7 @@ async def execute_plan(plan: Any, session_id: str, customer_id: str | None) -> d
         if blocked:
             log.warning("Skipping step %d (%s): deps %s failed", step.step_id, step.agent_name, blocked)
             failed.add(step.step_id)
-            await memory.save_step_error(session_id, step.step_id, step.agent_name,
-                                         f"Skipped — deps {blocked} failed")
+            await memory.save_step_error(session_id, step.step_id, step.agent_name, f"Skipped — deps {blocked} failed")
             continue
 
         log.info("Executing step %d: %s", step.step_id, step.agent_name)
@@ -278,7 +279,7 @@ async def execute_plan(plan: Any, session_id: str, customer_id: str | None) -> d
 
         try:
             response = await _call_agent(step, session_id, customer_id, prior_outputs)
-            results[step.step_id]       = response
+            results[step.step_id] = response
             prior_outputs[step.step_id] = response["result"]
 
             await memory.save_step_result(
@@ -288,7 +289,7 @@ async def execute_plan(plan: Any, session_id: str, customer_id: str | None) -> d
                 result=response["result"],
                 metadata={
                     "actions_taken": response.get("actions_taken"),
-                    "suggestions":   response.get("suggestions"),
+                    "suggestions": response.get("suggestions"),
                     **response.get("metadata", {}),
                 },
             )

@@ -45,7 +45,9 @@ Route ordering note:
   are registered BEFORE parameterised paths (/{id}) so the literal
   segments always win over the wildcard.
 """
+
 from __future__ import annotations
+
 import json
 import logging
 import os
@@ -60,14 +62,18 @@ log = logging.getLogger(__name__)
 _IMPORT_ERROR: str | None = None
 try:
     import auth
-    import cosmos                                       # noqa: F401  (validates env on import)
+    import capability_fetcher
+    import cosmos  # noqa: F401  (validates env on import)
     import registry
     import runtime_contract
     from models import (
-        AgentCreate, AgentReplace, AgentUpdate,
-        CapabilityAdd, LoginRequest, StatusPatch,
+        AgentCreate,
+        AgentReplace,
+        AgentUpdate,
+        CapabilityAdd,
+        LoginRequest,
+        StatusPatch,
     )
-    import capability_fetcher
 except Exception as _exc:
     _IMPORT_ERROR = f"{type(_exc).__name__}: {_exc}\n{traceback.format_exc()}"
     log.critical("Startup import failed:\n%s", _IMPORT_ERROR)
@@ -75,20 +81,14 @@ except Exception as _exc:
 
 _AUTH_LEVEL_BY_NAME: dict[str, func.AuthLevel] = {
     "ANONYMOUS": func.AuthLevel.ANONYMOUS,
-    "FUNCTION":  func.AuthLevel.FUNCTION,
-    "ADMIN":     func.AuthLevel.ADMIN,
+    "FUNCTION": func.AuthLevel.FUNCTION,
+    "ADMIN": func.AuthLevel.ADMIN,
 }
 
-_default_level = (
-    "ANONYMOUS"
-    if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
-    else "FUNCTION"
-)
+_default_level = "ANONYMOUS" if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true" else "FUNCTION"
 _configured_level = os.environ.get("REGISTRY_HTTP_AUTH_LEVEL", _default_level).upper()
 
-app = func.FunctionApp(
-    http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION)
-)
+app = func.FunctionApp(http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION))
 
 _CONFIG_ERRORS: list[str] = []
 if not _IMPORT_ERROR:
@@ -102,6 +102,7 @@ if not _IMPORT_ERROR:
 
 
 # ── Response helpers ──────────────────────────────────────────────────────────
+
 
 def _json(body, status: int = 200) -> func.HttpResponse:
     return func.HttpResponse(
@@ -125,6 +126,7 @@ def _err(msg: str, status: int = 400, detail: str | None = None) -> func.HttpRes
 def _html(body: str, status: int = 200) -> func.HttpResponse:
     return func.HttpResponse(body, status_code=status, mimetype="text/html")
 
+
 def _runtime_error_response() -> func.HttpResponse | None:
     if _IMPORT_ERROR:
         return _err("Worker startup failed", 503, _IMPORT_ERROR)
@@ -135,11 +137,7 @@ def _runtime_error_response() -> func.HttpResponse | None:
 
 def _token_from(req: func.HttpRequest) -> str:
     """Extract session token from X-Session-Token header or ?session_token= param."""
-    return (
-        req.headers.get("X-Session-Token")
-        or req.params.get("session_token")
-        or ""
-    )
+    return req.headers.get("X-Session-Token") or req.params.get("session_token") or ""
 
 
 async def _guard(req: func.HttpRequest) -> func.HttpResponse | None:
@@ -152,7 +150,7 @@ async def _guard(req: func.HttpRequest) -> func.HttpResponse | None:
     if runtime_err:
         return runtime_err
 
-    token  = _token_from(req)
+    token = _token_from(req)
     result = await auth.validate(token)
 
     if not result.valid:
@@ -160,15 +158,15 @@ async def _guard(req: func.HttpRequest) -> func.HttpResponse | None:
             "Authentication required — please log in via POST /api/auth/login",
             401,
         )
-    return None   # session is valid
+    return None  # session is valid
 
 
 # =============================================================================
 # AUTH ROUTES  (ANONYMOUS — no function key required)
 # =============================================================================
 
-@app.route(route="auth/login", methods=["POST"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+
+@app.route(route="auth/login", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
 async def auth_login(req: func.HttpRequest) -> func.HttpResponse:
     """
     Validate admin credentials and return a session token.
@@ -205,8 +203,7 @@ async def auth_login(req: func.HttpRequest) -> func.HttpResponse:
     return _json(result.model_dump())
 
 
-@app.route(route="auth/logout", methods=["POST"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="auth/logout", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
 async def auth_logout(req: func.HttpRequest) -> func.HttpResponse:
     """
     Invalidate the current session immediately.
@@ -222,7 +219,7 @@ async def auth_logout(req: func.HttpRequest) -> func.HttpResponse:
     if not token:
         # Also accept token in body for flexibility
         try:
-            body  = req.get_json()
+            body = req.get_json()
             token = body.get("token", "")
         except Exception:
             pass
@@ -231,8 +228,7 @@ async def auth_logout(req: func.HttpRequest) -> func.HttpResponse:
     return _json({"message": "Logged out successfully"})
 
 
-@app.route(route="auth/verify", methods=["GET"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="auth/verify", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 async def auth_verify(req: func.HttpRequest) -> func.HttpResponse:
     """
     Check whether a session token is still valid.
@@ -248,7 +244,7 @@ async def auth_verify(req: func.HttpRequest) -> func.HttpResponse:
     if runtime_err:
         return runtime_err
 
-    token  = _token_from(req)
+    token = _token_from(req)
     result = await auth.validate(token)
     return _json(result.model_dump())
 
@@ -257,8 +253,8 @@ async def auth_verify(req: func.HttpRequest) -> func.HttpResponse:
 # SYSTEM ROUTES  (ANONYMOUS)
 # =============================================================================
 
-@app.route(route="health", methods=["GET"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+
+@app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 async def health(req: func.HttpRequest) -> func.HttpResponse:
     """
     Liveness probe — no auth required.
@@ -268,26 +264,29 @@ async def health(req: func.HttpRequest) -> func.HttpResponse:
     if _IMPORT_ERROR:
         return func.HttpResponse(
             json.dumps({"status": "unhealthy", "import_error": _IMPORT_ERROR}),
-            status_code=503, mimetype="application/json",
+            status_code=503,
+            mimetype="application/json",
         )
     if _CONFIG_ERRORS:
         return func.HttpResponse(
             json.dumps({"status": "misconfigured", "errors": _CONFIG_ERRORS}),
-            status_code=503, mimetype="application/json",
+            status_code=503,
+            mimetype="application/json",
         )
-    return _json({
-        "status": "ok",
-        "service": "registry-api",
-        "time": datetime.utcnow().isoformat(),
-        "build": {
-            "version": os.environ.get("BUILD_VERSION", "dev"),
-            "sha": os.environ.get("BUILD_SHA", "unknown"),
-        },
-    })
+    return _json(
+        {
+            "status": "ok",
+            "service": "registry-api",
+            "time": datetime.utcnow().isoformat(),
+            "build": {
+                "version": os.environ.get("BUILD_VERSION", "dev"),
+                "sha": os.environ.get("BUILD_SHA", "unknown"),
+            },
+        }
+    )
 
 
-@app.route(route="agents/dashboard", methods=["GET"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="agents/dashboard", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 async def dashboard(req: func.HttpRequest) -> func.HttpResponse:
     """Browser-viewable HTML dashboard. Auto-refreshes every 60 s."""
     runtime_err = _runtime_error_response()
@@ -299,7 +298,7 @@ async def dashboard(req: func.HttpRequest) -> func.HttpResponse:
         return _html(f"<pre>{json.dumps(payload, indent=2)}</pre>", 503)
     try:
         all_agents = await cosmos.agent_list()
-        stats_obj  = await registry.get_stats()
+        stats_obj = await registry.get_stats()
         return _html(registry.build_dashboard_html(all_agents, stats_obj))
     except Exception as exc:
         log.exception("dashboard failed")
@@ -309,6 +308,7 @@ async def dashboard(req: func.HttpRequest) -> func.HttpResponse:
 # =============================================================================
 # FIXED SUB-ROUTES  — registered before /{id} to avoid wildcard capture
 # =============================================================================
+
 
 @app.route(route="agents/ping-all", methods=["POST"])
 async def ping_all(req: func.HttpRequest) -> func.HttpResponse:
@@ -385,13 +385,16 @@ async def export_agents(req: func.HttpRequest) -> func.HttpResponse:
         payload = json.dumps(
             {
                 "exported_at": datetime.utcnow().isoformat(),
-                "total":       len(all_agents),
-                "agents":      all_agents,
+                "total": len(all_agents),
+                "agents": all_agents,
             },
-            default=str, indent=2,
+            default=str,
+            indent=2,
         )
         return func.HttpResponse(
-            payload, status_code=200, mimetype="application/json",
+            payload,
+            status_code=200,
+            mimetype="application/json",
             headers={"Content-Disposition": "attachment; filename=agent-registry-export.json"},
         )
     except Exception as exc:
@@ -402,6 +405,7 @@ async def export_agents(req: func.HttpRequest) -> func.HttpResponse:
 # =============================================================================
 # AGENT CRUD ROUTES
 # =============================================================================
+
 
 @app.route(route="agents", methods=["POST"])
 async def create_agent(req: func.HttpRequest) -> func.HttpResponse:
@@ -443,10 +447,10 @@ async def list_agents(req: func.HttpRequest) -> func.HttpResponse:
     err = await _guard(req)
     if err:
         return err
-    q            = req.params.get("q", "").strip()
-    status       = req.params.get("status")
+    q = req.params.get("q", "").strip()
+    status = req.params.get("status")
     utility_type = req.params.get("utility_type")
-    tag          = req.params.get("tag")
+    tag = req.params.get("tag")
     try:
         if q:
             agents = await registry.search_agents(q)
@@ -456,6 +460,7 @@ async def list_agents(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:
         log.exception("list_agents failed")
         return _err(str(exc), 500)
+
 
 @app.route(route="agents/capabilities/fetch", methods=["POST"])
 async def fetch_agent_capabilities(req: func.HttpRequest) -> func.HttpResponse:
@@ -500,9 +505,9 @@ async def fetch_agent_capabilities(req: func.HttpRequest) -> func.HttpResponse:
     except Exception:
         return _err("Invalid JSON body")
 
-    endpoint_url      = (body.get("endpoint_url") or "").strip()
-    auth_config       = body.get("auth_config")       or {}
-    auth_secrets      = body.get("auth_secrets")      or {}
+    endpoint_url = (body.get("endpoint_url") or "").strip()
+    auth_config = body.get("auth_config") or {}
+    auth_secrets = body.get("auth_secrets") or {}
     invocation_config = body.get("invocation_config") or {}
 
     if not endpoint_url:
@@ -522,6 +527,7 @@ async def fetch_agent_capabilities(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:
         log.exception("fetch_agent_capabilities: unexpected error")
         return _err(f"Unexpected error: {exc}", 500)
+
 
 @app.route(route="agents/{agent_id}", methods=["GET"])
 async def get_agent(req: func.HttpRequest) -> func.HttpResponse:
@@ -602,7 +608,7 @@ async def delete_agent(req: func.HttpRequest) -> func.HttpResponse:
     if err:
         return err
     agent_id = req.route_params["agent_id"]
-    hard     = req.params.get("hard", "").lower() == "true"
+    hard = req.params.get("hard", "").lower() == "true"
     try:
         deleted = await registry.delete_agent(agent_id, hard=hard)
         if not deleted:
@@ -617,6 +623,7 @@ async def delete_agent(req: func.HttpRequest) -> func.HttpResponse:
 # =============================================================================
 # STATUS & CAPABILITY ROUTES
 # =============================================================================
+
 
 @app.route(route="agents/{agent_id}/status", methods=["PATCH"])
 async def set_status(req: func.HttpRequest) -> func.HttpResponse:
@@ -695,6 +702,7 @@ async def remove_capability(req: func.HttpRequest) -> func.HttpResponse:
 # =============================================================================
 # HEALTH PROBE ROUTES
 # =============================================================================
+
 
 @app.route(route="agents/{agent_id}/ping", methods=["GET"])
 async def ping_agent(req: func.HttpRequest) -> func.HttpResponse:

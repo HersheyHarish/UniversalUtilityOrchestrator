@@ -17,22 +17,23 @@ Session lifecycle:
   3. POST /api/auth/logout → deletes session from Cosmos immediately
   4. Sessions auto-expire after SESSION_TTL_HOURS via Cosmos TTL (no cron needed)
 """
+
 from __future__ import annotations
+
 import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import cosmos
 from azure.identity.aio import DefaultAzureCredential
 from azure.keyvault.secrets.aio import SecretClient
-
-import cosmos
 from models import LoginResponse, VerifyResponse
 
 log = logging.getLogger(__name__)
 
-_KV_URL        = os.environ.get("KEY_VAULT_URL", "")
+_KV_URL = os.environ.get("KEY_VAULT_URL", "")
 _SESSION_TTL_H = int(os.environ.get("SESSION_TTL_HOURS", "8"))
 
 # Shared credential — created lazily to avoid import-time aiohttp session leaks
@@ -42,6 +43,7 @@ _secret_cache: dict[str, str] = {}
 
 # ── Key Vault helpers ─────────────────────────────────────────────────────────
 
+
 async def _get_secret(name: str) -> str:
     """Fetch a secret from Key Vault, caching it for the lifetime of this instance."""
     app_env = os.environ.get("APP_ENV", "local").strip().lower()
@@ -50,8 +52,10 @@ async def _get_secret(name: str) -> str:
         raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
 
     if use_local:
-        if name == "admin-username": return "admin"
-        if name == "admin-password": return "$2b$12$H97DNnZIrhu070DIyJcNA.tNCbtX8Qqpv7KCec0iTbrUBQ7zjgOfO" # hash of 'password'
+        if name == "admin-username":
+            return "admin"
+        if name == "admin-password":
+            return "$2b$12$H97DNnZIrhu070DIyJcNA.tNCbtX8Qqpv7KCec0iTbrUBQ7zjgOfO"  # hash of 'password'
         return ""
 
     if name not in _secret_cache:
@@ -66,6 +70,7 @@ async def _get_secret(name: str) -> str:
 
 # ── Auth operations ───────────────────────────────────────────────────────────
 
+
 async def login(username: str, password: str) -> LoginResponse | None:
     """
     Validate username + password against Key Vault secrets.
@@ -77,7 +82,7 @@ async def login(username: str, password: str) -> LoginResponse | None:
 
     try:
         stored_username = await _get_secret("admin-username")
-        stored_hash     = await _get_secret("admin-password")
+        stored_hash = await _get_secret("admin-password")
     except Exception as exc:
         log.error("Key Vault credential fetch failed: %s", exc)
         # Don't leak the error message to the caller
@@ -100,17 +105,17 @@ async def login(username: str, password: str) -> LoginResponse | None:
         return None
 
     # Create session
-    now     = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
     expires = now + timedelta(hours=_SESSION_TTL_H)
-    token   = str(uuid.uuid4())
+    token = str(uuid.uuid4())
 
     session_doc = {
-        "id":            token,
-        "partition_key": token,          # each session is its own partition
-        "username":      username,
-        "created_at":    now.isoformat(),
-        "expires_at":    expires.isoformat(),
-        "ttl":           _SESSION_TTL_H * 3600,  # Cosmos auto-deletes after this
+        "id": token,
+        "partition_key": token,  # each session is its own partition
+        "username": username,
+        "created_at": now.isoformat(),
+        "expires_at": expires.isoformat(),
+        "ttl": _SESSION_TTL_H * 3600,  # Cosmos auto-deletes after this
     }
 
     await cosmos.session_create(session_doc)
