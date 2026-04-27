@@ -67,7 +67,8 @@ async def synthesize(
     api_key = await _get_secret(_OPENAI_SECRET)
     client  = AsyncOpenAI(
         base_url=_OAI_ENDPOINT,
-        api_key=api_key
+        api_key=api_key,
+        default_headers={"api-key": api_key}
     )
 
     completion = await client.chat.completions.create(

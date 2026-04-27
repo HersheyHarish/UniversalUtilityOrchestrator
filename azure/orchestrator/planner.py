@@ -64,7 +64,7 @@ async def _get_secret(name: str) -> str:
 
 async def _openai_client() -> AsyncOpenAI:
     api_key = await _get_secret(_OPENAI_SECRET)
-    return AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key)
+    return AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key, default_headers={"api-key": api_key})
 
 
 def _build_manifest(agents: list[dict[str, Any]]) -> str:
