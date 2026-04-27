@@ -6,20 +6,21 @@ Combines all step outputs into one final user-facing response via GPT-4o.
 Fix: same api_version pin as planner.py (2024-10-21 GA).
      Same shared-credential pattern as memory.py.
 """
+
 from __future__ import annotations
+
 import logging
 import os
 
+from models import AgentResponse, ExecutionPlan
 from openai import AsyncOpenAI
-
-from models import ExecutionPlan, AgentResponse
 from secret_provider import get_secret
 
 log = logging.getLogger(__name__)
 
-_OAI_ENDPOINT   = os.environ["AZURE_OPENAI_ENDPOINT"]
+_OAI_ENDPOINT = os.environ["AZURE_OPENAI_ENDPOINT"]
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
-_OPENAI_SECRET  = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
+_OPENAI_SECRET = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
 
 
 async def _get_secret(name: str) -> str:
@@ -42,7 +43,7 @@ Guidelines:
 
 
 async def synthesize(
-    plan:         ExecutionPlan,
+    plan: ExecutionPlan,
     step_results: dict[int, AgentResponse],
     user_message: str,
 ) -> str:
@@ -65,17 +66,13 @@ async def synthesize(
     )
 
     api_key = await _get_secret(_OPENAI_SECRET)
-    client  = AsyncOpenAI(
-        base_url=_OAI_ENDPOINT,
-        api_key=api_key,
-        default_headers={"api-key": api_key}
-    )
+    client = AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key, default_headers={"api-key": api_key})
 
     completion = await client.chat.completions.create(
         model=_OAI_DEPLOYMENT,
         messages=[
             {"role": "system", "content": _SYSTEM},
-            {"role": "user",   "content": synthesis_prompt},
+            {"role": "user", "content": synthesis_prompt},
         ],
         temperature=0.5,
         max_tokens=1000,

@@ -7,7 +7,9 @@ Fixes applied:
      so curl responses are never empty or unparseable.
   3. Startup import errors are caught and surfaced via /api/health.
 """
+
 from __future__ import annotations
+
 import json
 import logging
 import os
@@ -20,12 +22,12 @@ log = logging.getLogger(__name__)
 # Catch import errors at startup so /api/health can report them
 _IMPORT_ERROR: str | None = None
 try:
-    from models import ChatRequest, ChatResponse, SessionDoc, SessionStatus
+    import executor
     import memory
     import planner
-    import executor
-    import synthesizer
     import runtime_contract
+    import synthesizer
+    from models import ChatRequest, ChatResponse, SessionDoc, SessionStatus
 except Exception as _e:
     _IMPORT_ERROR = f"{type(_e).__name__}: {_e}\n{traceback.format_exc()}"
     log.critical("Startup import failed: %s", _IMPORT_ERROR)
@@ -33,20 +35,14 @@ except Exception as _e:
 
 _AUTH_LEVEL_BY_NAME: dict[str, func.AuthLevel] = {
     "ANONYMOUS": func.AuthLevel.ANONYMOUS,
-    "FUNCTION":  func.AuthLevel.FUNCTION,
-    "ADMIN":     func.AuthLevel.ADMIN,
+    "FUNCTION": func.AuthLevel.FUNCTION,
+    "ADMIN": func.AuthLevel.ADMIN,
 }
 
-_default_level = (
-    "ANONYMOUS"
-    if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
-    else "FUNCTION"
-)
+_default_level = "ANONYMOUS" if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true" else "FUNCTION"
 _configured_level = os.environ.get("ORCHESTRATOR_HTTP_AUTH_LEVEL", _default_level).upper()
 
-app = func.FunctionApp(
-    http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION)
-)
+app = func.FunctionApp(http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION))
 
 _CONFIG_ERRORS: list[str] = []
 if not _IMPORT_ERROR:
@@ -60,6 +56,7 @@ if not _IMPORT_ERROR:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _ok(body: dict, status: int = 200) -> func.HttpResponse:
     return func.HttpResponse(
@@ -79,6 +76,7 @@ def _err(msg: str, status: int = 400, detail: str | None = None) -> func.HttpRes
         mimetype="application/json",
     )
 
+
 def _runtime_error_response() -> func.HttpResponse | None:
     if _IMPORT_ERROR:
         return _err("Worker failed to start", 503, _IMPORT_ERROR)
@@ -86,10 +84,11 @@ def _runtime_error_response() -> func.HttpResponse | None:
         return _err("Runtime configuration is invalid", 503, "; ".join(_CONFIG_ERRORS))
     return None
 
+
 # ── GET /api/health  (ANONYMOUS — no key required) ───────────────────────────
 
-@app.route(route="health", methods=["GET"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+
+@app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 async def health(req: func.HttpRequest) -> func.HttpResponse:
     """
     Liveness probe. Returns 200 when the worker is healthy.
@@ -110,17 +109,20 @@ async def health(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
         )
 
-    return _ok({
-        "status": "ok",
-        "service": "orchestrator",
-        "build": {
-            "version": os.environ.get("BUILD_VERSION", "dev"),
-            "sha": os.environ.get("BUILD_SHA", "unknown"),
-        },
-    })
+    return _ok(
+        {
+            "status": "ok",
+            "service": "orchestrator",
+            "build": {
+                "version": os.environ.get("BUILD_VERSION", "dev"),
+                "sha": os.environ.get("BUILD_SHA", "unknown"),
+            },
+        }
+    )
 
 
 # ── POST /api/chat ─────────────────────────────────────────────────────────────
+
 
 @app.route(route="chat", methods=["POST"])
 async def chat(req: func.HttpRequest) -> func.HttpResponse:
@@ -143,10 +145,7 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
             existing = await memory.get_session(chat_req.session_id)
             if not existing:
                 return _err(f"Session '{chat_req.session_id}' not found", 404)
-            session = SessionDoc(**{
-                k: v for k, v in existing.items()
-                if k in SessionDoc.model_fields
-            })
+            session = SessionDoc(**{k: v for k, v in existing.items() if k in SessionDoc.model_fields})
         else:
             session = SessionDoc(
                 user_message=chat_req.message,
@@ -173,9 +172,7 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
         return _err("Planning failed", 500, str(e))
 
     try:
-        step_results = await executor.execute_plan(
-            plan, session_id, chat_req.customer_id
-        )
+        step_results = await executor.execute_plan(plan, session_id, chat_req.customer_id)
     except Exception as e:
         log.exception("Execution failed for session %s", session_id)
         await memory.update_session(session_id, status=SessionStatus.FAILED)
@@ -190,16 +187,19 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
         await memory.update_session(session_id, status=SessionStatus.FAILED)
         return _err("Synthesis failed", 500, str(e))
 
-    return _ok(ChatResponse(
-        session_id=session_id,
-        response=final,
-        plan_id=plan.plan_id,
-        agents_used=[s.agent_name for s in plan.steps],
-        steps_completed=len(step_results),
-    ).model_dump())
+    return _ok(
+        ChatResponse(
+            session_id=session_id,
+            response=final,
+            plan_id=plan.plan_id,
+            agents_used=[s.agent_name for s in plan.steps],
+            steps_completed=len(step_results),
+        ).model_dump()
+    )
 
 
 # ── GET /api/sessions/{session_id} ────────────────────────────────────────────
+
 
 @app.route(route="sessions/{session_id}", methods=["GET"])
 async def get_session(req: func.HttpRequest) -> func.HttpResponse:

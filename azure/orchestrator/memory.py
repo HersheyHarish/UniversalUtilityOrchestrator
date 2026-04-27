@@ -10,19 +10,21 @@ every _query()/_upsert() call; each credential spins up its own internal
 aiohttp ClientSession which was never closed, producing the
 "Unclosed client session" errors in the logs.
 """
+
 from __future__ import annotations
+
 import logging
 import os
-import urllib3
 from typing import Any
+
+import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-from azure.cosmos.aio import CosmosClient
 from azure.cosmos import exceptions as cosmos_exc
+from azure.cosmos.aio import CosmosClient
 from azure.identity.aio import DefaultAzureCredential
-
-from models import SessionDoc, MessageDoc, SessionStatus, MessageType, ExecutionPlan
+from models import ExecutionPlan, MessageDoc, MessageType, SessionDoc, SessionStatus
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ _CREDENTIAL: DefaultAzureCredential | None = None
 
 # ── Low-level helpers ─────────────────────────────────────────────────────────
 
+
 def _client() -> CosmosClient:
     """
     Return a CosmosClient that shares the module-level credential.
@@ -50,9 +53,9 @@ def _client() -> CosmosClient:
 
     if use_local:
         return CosmosClient(
-            _ENDPOINT, 
+            _ENDPOINT,
             credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
-            connection_verify=False
+            connection_verify=False,
         )
     global _CREDENTIAL
     if _CREDENTIAL is None:
@@ -90,7 +93,7 @@ async def _query(
     async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(container_name)
         kwargs: dict[str, Any] = {
-            "query":      query,
+            "query": query,
             "parameters": params or [],
         }
         if pk is not None:
@@ -100,6 +103,7 @@ async def _query(
 
 # ── Session operations ────────────────────────────────────────────────────────
 
+
 async def create_session(doc: SessionDoc) -> SessionDoc:
     raw = await _upsert("sessions", doc.model_dump())
     return SessionDoc(**raw)
@@ -107,6 +111,7 @@ async def create_session(doc: SessionDoc) -> SessionDoc:
 
 async def update_session(session_id: str, **fields) -> None:
     from datetime import datetime, timezone
+
     existing = await _read("sessions", session_id, session_id)
     if not existing:
         log.warning("update_session: session %s not found", session_id)
@@ -122,79 +127,87 @@ async def get_session(session_id: str) -> dict[str, Any] | None:
 
 # ── Message operations ────────────────────────────────────────────────────────
 
+
 async def append_message(msg: MessageDoc) -> None:
     await _upsert("messages", msg.model_dump())
 
 
 async def save_user_message(session_id: str, text: str) -> None:
-    await append_message(MessageDoc(
-        partition_key=session_id,
-        session_id=session_id,
-        type=MessageType.USER_INPUT,
-        content=text,
-    ))
+    await append_message(
+        MessageDoc(
+            partition_key=session_id,
+            session_id=session_id,
+            type=MessageType.USER_INPUT,
+            content=text,
+        )
+    )
 
 
 async def save_plan(session_id: str, plan: ExecutionPlan) -> None:
-    await append_message(MessageDoc(
-        partition_key=session_id,
-        session_id=session_id,
-        type=MessageType.PLAN,
-        content=plan.model_dump_json(),
-        metadata={"plan_id": plan.plan_id, "num_steps": len(plan.steps)},
-    ))
-    await update_session(session_id,
-                         plan=plan.model_dump(),
-                         status=SessionStatus.EXECUTING)
+    await append_message(
+        MessageDoc(
+            partition_key=session_id,
+            session_id=session_id,
+            type=MessageType.PLAN,
+            content=plan.model_dump_json(),
+            metadata={"plan_id": plan.plan_id, "num_steps": len(plan.steps)},
+        )
+    )
+    await update_session(session_id, plan=plan.model_dump(), status=SessionStatus.EXECUTING)
 
 
 async def save_step_start(session_id: str, step_id: int, agent_name: str, task: str) -> None:
-    await append_message(MessageDoc(
-        partition_key=session_id,
-        session_id=session_id,
-        type=MessageType.STEP_START,
-        step_id=step_id,
-        agent_name=agent_name,
-        content=task,
-    ))
+    await append_message(
+        MessageDoc(
+            partition_key=session_id,
+            session_id=session_id,
+            type=MessageType.STEP_START,
+            step_id=step_id,
+            agent_name=agent_name,
+            content=task,
+        )
+    )
 
 
-async def save_step_result(session_id: str, step_id: int,
-                           agent_name: str, result: str,
-                           metadata: dict | None = None) -> None:
-    await append_message(MessageDoc(
-        partition_key=session_id,
-        session_id=session_id,
-        type=MessageType.STEP_RESULT,
-        step_id=step_id,
-        agent_name=agent_name,
-        content=result,
-        metadata=metadata or {},
-    ))
+async def save_step_result(
+    session_id: str, step_id: int, agent_name: str, result: str, metadata: dict | None = None
+) -> None:
+    await append_message(
+        MessageDoc(
+            partition_key=session_id,
+            session_id=session_id,
+            type=MessageType.STEP_RESULT,
+            step_id=step_id,
+            agent_name=agent_name,
+            content=result,
+            metadata=metadata or {},
+        )
+    )
 
 
-async def save_step_error(session_id: str, step_id: int,
-                          agent_name: str, error: str) -> None:
-    await append_message(MessageDoc(
-        partition_key=session_id,
-        session_id=session_id,
-        type=MessageType.STEP_ERROR,
-        step_id=step_id,
-        agent_name=agent_name,
-        content=error,
-    ))
+async def save_step_error(session_id: str, step_id: int, agent_name: str, error: str) -> None:
+    await append_message(
+        MessageDoc(
+            partition_key=session_id,
+            session_id=session_id,
+            type=MessageType.STEP_ERROR,
+            step_id=step_id,
+            agent_name=agent_name,
+            content=error,
+        )
+    )
 
 
 async def save_final_response(session_id: str, response: str) -> None:
-    await append_message(MessageDoc(
-        partition_key=session_id,
-        session_id=session_id,
-        type=MessageType.FINAL,
-        content=response,
-    ))
-    await update_session(session_id,
-                         final_response=response,
-                         status=SessionStatus.COMPLETE)
+    await append_message(
+        MessageDoc(
+            partition_key=session_id,
+            session_id=session_id,
+            type=MessageType.FINAL,
+            content=response,
+        )
+    )
+    await update_session(session_id, final_response=response, status=SessionStatus.COMPLETE)
 
 
 async def get_step_results(session_id: str) -> list[dict[str, Any]]:
@@ -203,13 +216,14 @@ async def get_step_results(session_id: str) -> list[dict[str, Any]]:
         "SELECT * FROM c WHERE c.session_id = @sid AND c.type = @t ORDER BY c.step_id",
         params=[
             {"name": "@sid", "value": session_id},
-            {"name": "@t",   "value": MessageType.STEP_RESULT},
+            {"name": "@t", "value": MessageType.STEP_RESULT},
         ],
         pk=session_id,
     )
 
 
 # ── Agent registry ────────────────────────────────────────────────────────────
+
 
 async def get_active_agents() -> list[dict[str, Any]]:
     return await _query(

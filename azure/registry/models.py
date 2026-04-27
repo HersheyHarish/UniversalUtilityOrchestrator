@@ -27,17 +27,20 @@ New in this version:
 
   AgentDoc gains health_check_config and invocation_config fields.
 """
+
 from __future__ import annotations
+
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
-import uuid
 
 from pydantic import BaseModel, Field, field_validator
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
 
 def _uuid() -> str:
     return str(uuid.uuid4())
@@ -47,20 +50,23 @@ def _uuid() -> str:
 # Auth enumerations (unchanged)
 # =============================================================================
 
+
 class AuthType(str, Enum):
-    NONE         = "none"
-    API_KEY      = "api_key"
+    NONE = "none"
+    API_KEY = "api_key"
     BEARER_TOKEN = "bearer_token"
-    BASIC_AUTH   = "basic_auth"
-    OAUTH2       = "oauth2"
-    CUSTOM       = "custom"
+    BASIC_AUTH = "basic_auth"
+    OAUTH2 = "oauth2"
+    CUSTOM = "custom"
+
 
 class ApiKeyLocation(str, Enum):
-    HEADER      = "header"
+    HEADER = "header"
     QUERY_PARAM = "query_param"
 
+
 class CustomAuthInjectAs(str, Enum):
-    HEADER      = "header"
+    HEADER = "header"
     QUERY_PARAM = "query_param"
 
 
@@ -68,10 +74,11 @@ class CustomAuthInjectAs(str, Enum):
 # Health check configuration
 # =============================================================================
 
+
 class HealthCheckType(str, Enum):
-    HTTP = "http"   # GET request, check status code
-    TCP  = "tcp"    # TCP socket connect, no HTTP
-    NONE = "none"   # always treated as healthy — for agents without health endpoints
+    HTTP = "http"  # GET request, check status code
+    TCP = "tcp"  # TCP socket connect, no HTTP
+    NONE = "none"  # always treated as healthy — for agents without health endpoints
 
 
 class HealthCheckConfig(BaseModel):
@@ -86,24 +93,26 @@ class HealthCheckConfig(BaseModel):
     Use "tcp" for raw TCP services (gRPC, sockets) with no HTTP interface.
     Use "none" for agents that don't expose any reachability signal.
     """
-    check_type:             HealthCheckType = HealthCheckType.HTTP
+
+    check_type: HealthCheckType = HealthCheckType.HTTP
 
     # Optional: explicit health check URL.
     # Blank → auto-derived from endpoint_url by the registry probe logic.
-    health_check_url:       str | None = None
+    health_check_url: str | None = None
 
     # HTTP check settings
-    expected_http_status:   int  = 200
-    http_timeout_seconds:   int  = 10
+    expected_http_status: int = 200
+    http_timeout_seconds: int = 10
 
     # TCP check settings (port derived from endpoint_url when 0)
-    tcp_port:               int  = 0
-    tcp_timeout_seconds:    int  = 5
+    tcp_port: int = 0
+    tcp_timeout_seconds: int = 5
 
 
 # =============================================================================
 # Invocation configuration
 # =============================================================================
+
 
 class InvocationConfig(BaseModel):
     """
@@ -146,82 +155,87 @@ class InvocationConfig(BaseModel):
     Examples: {"Accept": "application/json", "X-Api-Version": "2"}
     Auth headers come from auth_injector — do NOT duplicate them here.
     """
-    http_method:           str                   = "POST"
-    content_type:          str                   = "application/json"
+
+    http_method: str = "POST"
+    content_type: str = "application/json"
 
     # Field mapping: leave empty to use the legacy AgentRequest schema
-    body_template:         dict[str, Any]         = Field(default_factory=dict)
+    body_template: dict[str, Any] = Field(default_factory=dict)
 
     # Dot-notation extraction path for the result: leave empty for resp["result"]
-    response_result_path:  str                    = ""
+    response_result_path: str = ""
 
     # Non-auth static headers (e.g. Accept, X-Api-Version)
-    extra_static_headers:  dict[str, str]         = Field(default_factory=dict)
+    extra_static_headers: dict[str, str] = Field(default_factory=dict)
 
     # Per-agent overrides: 0 / -1 = use orchestrator global defaults
-    timeout_seconds:       int                    = 0
-    max_retries:           int                    = -1
+    timeout_seconds: int = 0
+    max_retries: int = -1
 
 
 # =============================================================================
 # Auth sub-models (unchanged from auth-v2)
 # =============================================================================
 
+
 class CustomAuthEntry(BaseModel):
-    key:         str
-    inject_as:   CustomAuthInjectAs = CustomAuthInjectAs.HEADER
-    value:       str | None = None
+    key: str
+    inject_as: CustomAuthInjectAs = CustomAuthInjectAs.HEADER
+    value: str | None = None
     secret_name: str | None = None
 
 
 class AuthConfig(BaseModel):
     auth_type: AuthType = AuthType.NONE
 
-    api_key_location:    ApiKeyLocation | None = None
-    api_key_name:        str | None = None
+    api_key_location: ApiKeyLocation | None = None
+    api_key_name: str | None = None
     api_key_secret_name: str | None = None
 
     bearer_token_secret_name: str | None = None
 
-    basic_auth_username:             str | None = None
+    basic_auth_username: str | None = None
     basic_auth_password_secret_name: str | None = None
 
-    oauth2_token_url:          str | None = None
-    oauth2_client_id:          str | None = None
+    oauth2_token_url: str | None = None
+    oauth2_client_id: str | None = None
     oauth2_client_secret_name: str | None = None
-    oauth2_scopes:             str | None = None
-    oauth2_token_ttl_seconds:  int        = 3600
+    oauth2_scopes: str | None = None
+    oauth2_token_ttl_seconds: int = 3600
 
     custom_entries: list[CustomAuthEntry] = Field(default_factory=list)
 
 
 class AuthSecrets(BaseModel):
-    api_key_value:              str | None = None
-    bearer_token_value:         str | None = None
-    basic_auth_password_value:  str | None = None
+    api_key_value: str | None = None
+    bearer_token_value: str | None = None
+    basic_auth_password_value: str | None = None
     oauth2_client_secret_value: str | None = None
-    custom_secret_values:       list[str | None] = Field(default_factory=list)
+    custom_secret_values: list[str | None] = Field(default_factory=list)
 
 
 # =============================================================================
 # Agent status & utility enumerations
 # =============================================================================
 
+
 class AgentStatus(str, Enum):
-    ACTIVE   = "active"
+    ACTIVE = "active"
     INACTIVE = "inactive"
     DEGRADED = "degraded"
 
+
 class UtilityType(str, Enum):
     ELECTRIC = "electric"
-    GAS      = "gas"
-    WATER    = "water"
-    MULTI    = "multi"
+    GAS = "gas"
+    WATER = "water"
+    MULTI = "multi"
+
 
 class Capability(BaseModel):
-    name:          str
-    description:   str
-    input_schema:  dict[str, Any] = Field(default_factory=dict)
+    name: str
+    description: str
+    input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -229,34 +243,35 @@ class Capability(BaseModel):
 # Core document
 # =============================================================================
 
+
 class AgentDoc(BaseModel):
-    id:            str              = Field(default_factory=_uuid)
-    partition_key: str              = "agents"
-    name:          str
-    description:   str
-    endpoint_url:  str
-    status:        AgentStatus      = AgentStatus.ACTIVE
-    version:       str              = "1.0.0"
+    id: str = Field(default_factory=_uuid)
+    partition_key: str = "agents"
+    name: str
+    description: str
+    endpoint_url: str
+    status: AgentStatus = AgentStatus.ACTIVE
+    version: str = "1.0.0"
     utility_types: list[UtilityType] = Field(default_factory=list)
-    tags:          list[str]        = Field(default_factory=list)
-    capabilities:  list[Capability] = Field(default_factory=list)
-    metadata:      dict[str, Any]   = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+    capabilities: list[Capability] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Auth
-    auth_config:         AuthConfig          = Field(default_factory=AuthConfig)
-    api_key_secret_name: str | None          = None   # legacy
+    auth_config: AuthConfig = Field(default_factory=AuthConfig)
+    api_key_secret_name: str | None = None  # legacy
 
     # NEW: Health check and invocation configs
-    health_check_config: HealthCheckConfig   = Field(default_factory=HealthCheckConfig)
-    invocation_config:   InvocationConfig    = Field(default_factory=InvocationConfig)
+    health_check_config: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+    invocation_config: InvocationConfig = Field(default_factory=InvocationConfig)
 
     # Health tracking (populated by ping operations)
     last_health_check_at: str | None = None
-    last_health_status:   str | None = None
-    last_health_ms:       int | None = None
+    last_health_status: str | None = None
+    last_health_ms: int | None = None
 
-    created_at:  str = Field(default_factory=_now)
-    updated_at:  str = Field(default_factory=_now)
+    created_at: str = Field(default_factory=_now)
+    updated_at: str = Field(default_factory=_now)
 
     @field_validator("name")
     @classmethod
@@ -278,20 +293,21 @@ class AgentDoc(BaseModel):
 # Request bodies
 # =============================================================================
 
+
 class AgentCreate(BaseModel):
-    name:          str
-    description:   str
-    endpoint_url:  str
-    version:       str                  = "1.0.0"
-    utility_types: list[UtilityType]    = Field(default_factory=list)
-    tags:          list[str]            = Field(default_factory=list)
-    capabilities:  list[Capability]     = Field(default_factory=list)
-    metadata:      dict[str, Any]       = Field(default_factory=dict)
-    auth_config:   AuthConfig           = Field(default_factory=AuthConfig)
-    auth_secrets:  AuthSecrets | None   = None
-    api_key_secret_name: str | None     = None   # legacy
+    name: str
+    description: str
+    endpoint_url: str
+    version: str = "1.0.0"
+    utility_types: list[UtilityType] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    capabilities: list[Capability] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    auth_config: AuthConfig = Field(default_factory=AuthConfig)
+    auth_secrets: AuthSecrets | None = None
+    api_key_secret_name: str | None = None  # legacy
     health_check_config: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
-    invocation_config:   InvocationConfig  = Field(default_factory=InvocationConfig)
+    invocation_config: InvocationConfig = Field(default_factory=InvocationConfig)
 
     @field_validator("endpoint_url")
     @classmethod
@@ -303,35 +319,37 @@ class AgentCreate(BaseModel):
 
 class AgentUpdate(BaseModel):
     """PATCH — all fields optional."""
-    description:   str | None              = None
-    endpoint_url:  str | None              = None
-    version:       str | None              = None
+
+    description: str | None = None
+    endpoint_url: str | None = None
+    version: str | None = None
     utility_types: list[UtilityType] | None = None
-    tags:          list[str] | None         = None
-    capabilities:  list[Capability] | None  = None
-    metadata:      dict[str, Any] | None    = None
-    auth_config:   AuthConfig | None        = None
-    auth_secrets:  AuthSecrets | None       = None
-    api_key_secret_name: str | None         = None
+    tags: list[str] | None = None
+    capabilities: list[Capability] | None = None
+    metadata: dict[str, Any] | None = None
+    auth_config: AuthConfig | None = None
+    auth_secrets: AuthSecrets | None = None
+    api_key_secret_name: str | None = None
     health_check_config: HealthCheckConfig | None = None
-    invocation_config:   InvocationConfig  | None = None
+    invocation_config: InvocationConfig | None = None
 
 
 class AgentReplace(BaseModel):
     """PUT — full replacement."""
-    name:          str
-    description:   str
-    endpoint_url:  str
-    version:       str                  = "1.0.0"
-    utility_types: list[UtilityType]    = Field(default_factory=list)
-    tags:          list[str]            = Field(default_factory=list)
-    capabilities:  list[Capability]     = Field(default_factory=list)
-    metadata:      dict[str, Any]       = Field(default_factory=dict)
-    auth_config:   AuthConfig           = Field(default_factory=AuthConfig)
-    auth_secrets:  AuthSecrets | None   = None
-    api_key_secret_name: str | None     = None
+
+    name: str
+    description: str
+    endpoint_url: str
+    version: str = "1.0.0"
+    utility_types: list[UtilityType] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    capabilities: list[Capability] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    auth_config: AuthConfig = Field(default_factory=AuthConfig)
+    auth_secrets: AuthSecrets | None = None
+    api_key_secret_name: str | None = None
     health_check_config: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
-    invocation_config:   InvocationConfig  = Field(default_factory=InvocationConfig)
+    invocation_config: InvocationConfig = Field(default_factory=InvocationConfig)
 
 
 class StatusPatch(BaseModel):
@@ -340,9 +358,9 @@ class StatusPatch(BaseModel):
 
 
 class CapabilityAdd(BaseModel):
-    name:          str
-    description:   str
-    input_schema:  dict[str, Any] = Field(default_factory=dict)
+    name: str
+    description: str
+    input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -350,17 +368,20 @@ class CapabilityAdd(BaseModel):
 # Admin UI auth models
 # =============================================================================
 
+
 class LoginRequest(BaseModel):
     username: str
     password: str
 
+
 class LoginResponse(BaseModel):
-    token:      str
+    token: str
     expires_at: str
-    username:   str
+    username: str
+
 
 class VerifyResponse(BaseModel):
-    valid:    bool
+    valid: bool
     username: str | None = None
 
 
@@ -368,39 +389,40 @@ class VerifyResponse(BaseModel):
 # Response models
 # =============================================================================
 
+
 class HealthCheckResult(BaseModel):
-    agent_id:    str
-    agent_name:  str
-    endpoint:    str
-    status:      str        # healthy | unhealthy | unreachable
-    check_type:  str        = "http"
-    http_code:   int | None = None
+    agent_id: str
+    agent_name: str
+    endpoint: str
+    status: str  # healthy | unhealthy | unreachable
+    check_type: str = "http"
+    http_code: int | None = None
     response_ms: int | None = None
-    checked_at:  str        = Field(default_factory=_now)
-    error:       str | None = None
+    checked_at: str = Field(default_factory=_now)
+    error: str | None = None
 
 
 class PingAllResponse(BaseModel):
-    checked:  int
-    healthy:  int
+    checked: int
+    healthy: int
     degraded: int
-    results:  list[HealthCheckResult]
+    results: list[HealthCheckResult]
 
 
 class RegistryStats(BaseModel):
-    total:                int
-    by_status:            dict[str, int]
-    by_utility_type:      dict[str, int]
-    by_auth_type:         dict[str, int]
+    total: int
+    by_status: dict[str, int]
+    by_utility_type: dict[str, int]
+    by_auth_type: dict[str, int]
     by_health_check_type: dict[str, int]
-    total_capabilities:   int
-    unique_tags:          list[str]
-    last_registered_at:   str | None
+    total_capabilities: int
+    unique_tags: list[str]
+    last_registered_at: str | None
     last_health_check_at: str | None
 
 
 class CapabilityIndex(BaseModel):
     capability_name: str
-    description:     str
-    agent_count:     int
-    agent_names:     list[str]
+    description: str
+    agent_count: int
+    agent_names: list[str]

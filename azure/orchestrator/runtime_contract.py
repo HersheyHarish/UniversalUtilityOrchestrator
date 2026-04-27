@@ -1,6 +1,7 @@
 """
 runtime_contract.py — runtime mode validation for orchestrator service.
 """
+
 from __future__ import annotations
 
 import os

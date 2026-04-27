@@ -6,6 +6,7 @@ Resolution order:
   2) Local emulator mode env vars
   3) Azure Key Vault secret lookup
 """
+
 from __future__ import annotations
 
 import base64
@@ -30,7 +31,7 @@ _kv_credential: DefaultAzureCredential | None = None
 def _decode_inline(secret_ref: str) -> str | None:
     if not secret_ref or not secret_ref.startswith(_INLINE_PREFIX):
         return None
-    raw = secret_ref[len(_INLINE_PREFIX):]
+    raw = secret_ref[len(_INLINE_PREFIX) :]
     try:
         padding = "=" * (-len(raw) % 4)
         return base64.urlsafe_b64decode((raw + padding).encode("ascii")).decode("utf-8")
