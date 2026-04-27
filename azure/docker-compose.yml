@@ -67,6 +67,8 @@ services:
       - COSMOS_ENDPOINT=https://cosmos:8081/
       - COSMOS_DATABASE=utility_agent_db
       - ORCHESTRATOR_HTTP_AUTH_LEVEL=ANONYMOUS
+      - CORS_ALLOWED_ORIGINS=http://localhost:5174,http://localhost:3000
+      - CORS_SUPPORT_CREDENTIALS=true
       - BUILD_VERSION=dev
       - BUILD_SHA=local
 
@@ -95,7 +97,7 @@ services:
       - COSMOS_DATABASE=utility_agent_db
       - REGISTRY_HTTP_AUTH_LEVEL=ANONYMOUS
       - CONTAINER_NAME=azure_registry
-      - CORS_ALLOWED_ORIGINS=["http://localhost:5173","http://localhost:3000"]
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
       - CORS_SUPPORT_CREDENTIALS=true
       - BUILD_VERSION=dev
       - BUILD_SHA=local
@@ -114,4 +116,20 @@ services:
       - VITE_FUNC_CODE=
     volumes:
       - ./registry-ui:/app
+      - /app/node_modules
+
+  chatbot:
+    build:
+      context: ./chatbot
+      dockerfile: Dockerfile
+    container_name: utility_chatbot_ui
+    ports:
+      - "5174:3000"
+    environment:
+      # VITE_ vars are baked in at build time. Since we run a dev server with a mounted volume, 
+      # restarting the dev server container picks up env changes.
+      - VITE_ORCHESTRATOR_URL=http://localhost:7071
+      - VITE_FUNC_CODE=
+    volumes:
+      - ./chatbot:/app
       - /app/node_modules

@@ -1,0 +1,22 @@
+FROM --platform=linux/amd64 mcr.microsoft.com/azure-functions/python:4-python3.11
+
+# Set up working directory
+WORKDIR /app
+
+# Copy requirements files first to cache dependencies
+COPY azure/orchestrator/requirements.txt /app/req_orchestrator.txt
+COPY azure/registry/requirements.txt /app/req_registry.txt
+COPY tests/requirements-test.txt /app/req_test.txt
+
+# Install all dependencies
+RUN pip install --no-cache-dir -r /app/req_orchestrator.txt \
+    && pip install --no-cache-dir -r /app/req_registry.txt \
+    && pip install --no-cache-dir -r /app/req_test.txt
+
+# Copy source code and tests
+COPY azure/orchestrator /app/azure/orchestrator
+COPY azure/registry /app/azure/registry
+COPY tests /app/tests
+
+# Default command: run both test suites with their respective PYTHONPATH
+CMD sh -c "PYTHONPATH=/app/azure/orchestrator pytest tests/orchestrator/ -v && PYTHONPATH=/app/azure/registry pytest tests/registry/ -v"
