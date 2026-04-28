@@ -1,0 +1,72 @@
+name: PR CI Gates
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+jobs:
+  python-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest ruff pip-audit
+          pip install -r azure/orchestrator/requirements.txt
+          pip install -r azure/registry/requirements.txt
+          pip install -r tests/requirements-test.txt
+
+      - name: Run Unit Tests
+        run: |
+          PYTHONPATH="." pytest -q tests/runtime_contract
+          PYTHONPATH="azure/orchestrator" pytest tests/orchestrator/ -v
+          PYTHONPATH="azure/registry" pytest tests/registry/ -v
+
+      - name: Compile-check services
+        run: python -m compileall azure/orchestrator azure/registry
+
+      - name: Dependency vulnerability scan (Python)
+        run: |
+          pip-audit -r azure/orchestrator/requirements.txt
+          pip-audit -r azure/registry/requirements.txt
+
+  ui-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: azure/registry-ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: azure/registry-ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build UI
+        run: npm run build
+
+      - name: Dependency vulnerability scan (NPM)
+        run: npm audit --audit-level=high
+
+
+
