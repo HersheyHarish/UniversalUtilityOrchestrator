@@ -115,29 +115,6 @@ export const agents = {
         invocation_config: invocationConfig,
       },
     }),
-
-  importReplaceByName: async (payloads) => {
-    if (!Array.isArray(payloads)) throw new Error("payloads must be an array");
-    const existing = await req("GET", "/api/agents", { params: {} });
-    const byName = new Map((existing.agents || []).map((a) => [a.name, a.id]));
-
-    const results = [];
-    for (const payload of payloads) {
-      const id = byName.get(payload.name);
-      try {
-        if (id) {
-          await req("PUT", `/api/agents/${id}`, { body: payload });
-          results.push({ name: payload.name, action: "updated", ok: true });
-        } else {
-          await req("POST", "/api/agents", { body: payload });
-          results.push({ name: payload.name, action: "created", ok: true });
-        }
-      } catch (error) {
-        results.push({ name: payload.name, action: id ? "updated" : "created", ok: false, error: error.message });
-      }
-    }
-    return results;
-  },
 };
 
 // ── Registry ──────────────────────────────────────────────────────────────────

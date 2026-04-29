@@ -1,0 +1,4 @@
+window.__UUA_RUNTIME_CONFIG__ = {
+  VITE_REGISTRY_URL: "",
+  VITE_FUNC_CODE: "",
+};
