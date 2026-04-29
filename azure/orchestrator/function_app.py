@@ -217,3 +217,26 @@ async def get_session(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         log.exception("get_session failed for %s", session_id)
         return _err(str(e), 500)
+
+
+# ── GET /api/users/{customer_id}/sessions ─────────────────────────────────────
+
+
+@app.route(route="users/{customer_id}/sessions", methods=["GET"])
+async def get_user_sessions(req: func.HttpRequest) -> func.HttpResponse:
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
+
+    customer_id = req.route_params.get("customer_id")
+    if not customer_id:
+        return _err("customer_id is required", 400)
+
+    try:
+        sessions = await memory.get_sessions_by_customer(customer_id)
+        # Sort manually just in case cosmos _ts indexing is weird, but query does it too
+        return _ok({"sessions": sessions})
+    except Exception as e:
+        log.exception("get_user_sessions failed for customer %s", customer_id)
+        return _err(str(e), 500)
+

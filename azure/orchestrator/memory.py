@@ -13,6 +13,7 @@ aiohttp ClientSession which was never closed, producing the
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -116,6 +117,11 @@ async def update_session(session_id: str, **fields) -> None:
     if not existing:
         log.warning("update_session: session %s not found", session_id)
         return
+    # Container partition path is /session_id — ensure persisted docs always have it
+    if not existing.get("session_id"):
+        existing["session_id"] = existing.get("id") or session_id
+    if not existing.get("partition_key"):
+        existing["partition_key"] = existing["session_id"]
     existing.update(fields)
     existing["updated_at"] = datetime.now(timezone.utc).isoformat()
     await _upsert("sessions", existing)
@@ -123,6 +129,25 @@ async def update_session(session_id: str, **fields) -> None:
 
 async def get_session(session_id: str) -> dict[str, Any] | None:
     return await _read("sessions", session_id, session_id)
+
+
+async def get_sessions_by_customer(customer_id: str) -> list[dict[str, Any]]:
+    # Avoid ORDER BY on _ts here: cross-partition ORDER BY often fails on the emulator
+    # or without a composite index; sort in-process instead.
+    rows = await _query(
+        "sessions",
+        "SELECT * FROM c WHERE c.customer_id = @cid",
+        params=[{"name": "@cid", "value": customer_id}],
+    )
+
+    def _sort_key(doc: dict[str, Any]) -> tuple[int, str]:
+        ts = doc.get("_ts")
+        if isinstance(ts, (int, float)):
+            return (int(ts), doc.get("created_at") or "")
+        return (0, doc.get("created_at") or "")
+
+    rows.sort(key=_sort_key, reverse=True)
+    return rows
 
 
 # ── Message operations ────────────────────────────────────────────────────────
@@ -149,7 +174,7 @@ async def save_plan(session_id: str, plan: ExecutionPlan) -> None:
             partition_key=session_id,
             session_id=session_id,
             type=MessageType.PLAN,
-            content=plan.model_dump_json(),
+            content=json.dumps(plan.model_dump()),
             metadata={"plan_id": plan.plan_id, "num_steps": len(plan.steps)},
         )
     )

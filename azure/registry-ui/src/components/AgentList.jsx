@@ -6,6 +6,7 @@ import { Spinner, StatusBadge, HealthDot, TagList,
 import { IcPlus, IcSearch, IcRefresh, IcEdit, IcTrash,
          IcChevronRight, IcDownload, IcFilter } from "./Icons.jsx";
 import AgentForm from "./AgentForm.jsx";
+import ImportAgentsModal from "./ImportAgentsModal.jsx";
 
 const STATUS_FILTERS  = ["all","active","inactive","degraded"];
 const UTILITY_FILTERS = ["all","electric","gas","water","multi"];
@@ -18,6 +19,7 @@ export default function AgentList() {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
   const [toast,    setToast]    = useState("");
@@ -83,6 +85,9 @@ export default function AgentList() {
         <div style={{ display: "flex", gap: 10 }}>
           <button className="btn btn-secondary" onClick={() => registry.export()}>
             <IcDownload size={14} /> Export
+          </button>
+          <button className="btn btn-secondary" onClick={() => setShowImport(true)}>
+            <IcPlus size={14} /> Import
           </button>
           <button className="btn btn-secondary" onClick={load}>
             <IcRefresh size={14} /> Refresh
@@ -217,6 +222,16 @@ export default function AgentList() {
       {showForm && (
         <AgentForm initial={editItem} onSaved={handleSaved}
           onCancel={() => { setShowForm(false); setEditItem(null); }} />
+      )}
+      {showImport && (
+        <ImportAgentsModal
+          onCancel={() => setShowImport(false)}
+          onImported={(summary) => {
+            setShowImport(false);
+            showToast(`Import complete: ${summary.created} created, ${summary.updated} updated, ${summary.failed} failed.`);
+            load();
+          }}
+        />
       )}
       {deleteId && (
         <ConfirmModal

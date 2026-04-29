@@ -1,0 +1,104 @@
+:root {
+  /* Status Colors */
+  --error: #fa777c;
+  --success: #57F287;
+  
+  /* Typography */
+  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-heading: 'Outfit', var(--font-main);
+  
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  
+  /* Borders */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 24px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+/* Dark Theme (Default) */
+:root[data-theme="dark"], :root {
+  --bg-primary: #1e1f22;
+  --bg-secondary: #2b2d31;
+  --bg-tertiary: #383a40;
+  --bg-hover: #404249;
+  
+  --text-primary: #f2f3f5;
+  --text-secondary: #b5bac1;
+  --text-muted: #949ba4;
+  
+  --accent-primary: #5865F2; /* Retaining discord-esque blue-purple for dark */
+  --accent-hover: #4752C4;
+  
+  --border-color: rgba(255, 255, 255, 0.08);
+  --glass-bg: rgba(43, 45, 49, 0.7);
+  
+  /* Specific chat bubble */
+  --user-bubble-bg: var(--bg-secondary);
+  --user-bubble-text: var(--text-primary);
+  --assistant-bubble-text: var(--text-primary);
+}
+
+/* Light Theme (Accenture Inspired) */
+:root[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f4f5;
+  --bg-tertiary: #e4e4e7;
+  --bg-hover: #d4d4d8;
+  
+  --text-primary: #09090b;
+  --text-secondary: #52525b;
+  --text-muted: #71717a;
+  
+  --accent-primary: #a100ff; /* Accenture Purple */
+  --accent-hover: #7b00cc;
+  
+  --border-color: rgba(0, 0, 0, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.08);
+
+  --user-bubble-bg: var(--bg-secondary);
+  --user-bubble-text: var(--text-primary);
+  --assistant-bubble-text: var(--text-primary);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-main);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

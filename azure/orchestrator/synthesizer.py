@@ -12,14 +12,16 @@ from __future__ import annotations
 import logging
 import os
 
-from models import AgentResponse, ExecutionPlan
-from openai import AsyncOpenAI
+from openai import AsyncAzureOpenAI
+from planner import ExecutionPlan
 from secret_provider import get_secret
 
 log = logging.getLogger(__name__)
 
-_OAI_ENDPOINT = os.environ["AZURE_OPENAI_ENDPOINT"]
+_OAI_ENDPOINT_RAW = os.environ["AZURE_OPENAI_ENDPOINT"]
+_OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+_OAI_API_VER = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
 _OPENAI_SECRET = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
 
 
@@ -42,9 +44,23 @@ Guidelines:
 """
 
 
+def _step_result_text(step_payload: object) -> str:
+    """Executor returns dicts with a \"result\" key, not AgentResponse models."""
+    if isinstance(step_payload, dict):
+        return str(step_payload.get("result") or "")
+    return str(getattr(step_payload, "result", "") or "")
+
+
+def _agent_name_for_step(plan: ExecutionPlan, step_id: int) -> str:
+    for s in plan.steps:
+        if s.step_id == step_id:
+            return s.agent_name
+    return "Agent"
+
+
 async def synthesize(
     plan: ExecutionPlan,
-    step_results: dict[int, AgentResponse],
+    step_results: dict[int, dict],
     user_message: str,
 ) -> str:
     if not step_results:
@@ -55,8 +71,8 @@ async def synthesize(
         )
 
     agent_sections = [
-        f"[{plan.steps[i].agent_name if i < len(plan.steps) else 'Agent'}]\n{r.result}"
-        for i, (_, r) in enumerate(sorted(step_results.items()))
+        f"[{_agent_name_for_step(plan, step_id)}]\n{_step_result_text(payload)}"
+        for step_id, payload in sorted(step_results.items())
     ]
 
     synthesis_prompt = (
@@ -66,7 +82,11 @@ async def synthesize(
     )
 
     api_key = await _get_secret(_OPENAI_SECRET)
-    client = AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key, default_headers={"api-key": api_key})
+    client = AsyncAzureOpenAI(
+        azure_endpoint=_OAI_ENDPOINT,
+        api_key=api_key,
+        api_version=_OAI_API_VER,
+    )
 
     completion = await client.chat.completions.create(
         model=_OAI_DEPLOYMENT,
@@ -75,7 +95,10 @@ async def synthesize(
             {"role": "user", "content": synthesis_prompt},
         ],
         temperature=0.5,
-        max_tokens=1000,
+        max_completion_tokens=1000,
     )
 
-    return completion.choices[0].message.content
+    content = completion.choices[0].message.content
+    return content if isinstance(content, str) and content.strip() else (
+        "I could not generate a response. Please try again or contact support."
+    )

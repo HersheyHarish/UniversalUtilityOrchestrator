@@ -96,11 +96,14 @@ class AgentResponse(BaseModel):
 class SessionDoc(BaseModel):
     """
     Stored in the `sessions` container.
-    partition_key = session_id  (stored in the partition_key field)
+
+    init_cosmos_emulator.py defines this container with partition key path
+    /session_id — Cosmos requires that property on every document (not /partition_key).
     """
 
     id: str = Field(default_factory=_uuid)
-    partition_key: str = ""  # set to id after creation
+    partition_key: str = ""  # legacy mirror of id; kept for older docs / queries
+    session_id: str = ""  # must match id; used as the Cosmos partition key value
     user_message: str
     customer_id: str | None = None
     status: SessionStatus = SessionStatus.PLANNING
@@ -110,6 +113,8 @@ class SessionDoc(BaseModel):
     updated_at: str = Field(default_factory=_now)
 
     def model_post_init(self, __context: Any) -> None:
+        if not self.session_id:
+            self.session_id = self.id
         if not self.partition_key:
             self.partition_key = self.id
 
