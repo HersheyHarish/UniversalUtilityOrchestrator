@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PORT=8002
+
+WORKDIR /app
+
+# Build context is repo root: `docker build -f src/agents/supportAgents/Dockerfile.customerLookup .`
+COPY src/agents/supportAgents/requirements.customerLookup.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/agents/supportAgents/ src/agents/supportAgents/
+COPY src/agents/shared/ src/agents/shared/
+COPY src/data/demo_billing_data.json src/data/
+
+EXPOSE 8002
+CMD ["uvicorn", "src.agents.supportAgents.customerLookupAgent:app", "--host", "0.0.0.0", "--port", "8002"]
