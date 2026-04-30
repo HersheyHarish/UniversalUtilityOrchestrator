@@ -1,0 +1,19 @@
+# Azure Functions runtime
+azure-functions==1.21.3
+ 
+# Cosmos DB async client
+azure-cosmos==4.7.0
+aiohttp==3.13.4
+ 
+# Identity & Key Vault (Managed Identity auth)
+azure-identity==1.19.0
+azure-keyvault-secrets==4.8.0
+ 
+# Azure OpenAI — pinned to version that works cleanly with Azure endpoints
+openai==1.54.5
+ 
+# HTTP client for calling remote agents
+httpx==0.27.2
+ 
+# Data validation
+pydantic==2.9.2
