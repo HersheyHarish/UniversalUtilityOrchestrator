@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
-import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+from src.agents.shared.loaders import load_json, mtime_cached
+from src.agents.shared.query_parsing import extract_customer_id, normalize_customer_id
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Customer Lookup Agent")
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_FILE = BASE_DIR / "data" / "demo_billing_data.json"
 
 
@@ -23,13 +23,7 @@ class CustomerLookupRequest(BaseModel):
     customer_id: str | None = None
 
 
-def load_data() -> dict[str, Any]:
-    try:
-        with DATA_FILE.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to load demo data: {e}")
-        return {}
+cached_data = mtime_cached(load_json, DATA_FILE)
 
 
 @app.get("/api/health")
@@ -39,16 +33,16 @@ def health() -> dict[str, str]:
 
 @app.post("/api/customer_lookup_agent")
 def customer_lookup_agent(request: CustomerLookupRequest) -> dict[str, Any]:
-    dataset = load_data()
+    try:
+        dataset = cached_data()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     accounts = dataset.get("accounts", {})
     invoices = dataset.get("invoices", {})
 
-    customer_id = request.customer_id
-    if not customer_id:
-        import re
-        match = re.search(r"CUST-\d+", request.query, re.IGNORECASE)
-        if match:
-             customer_id = match.group(0).upper()
+    customer_id = request.customer_id or extract_customer_id(request.query)
+    if customer_id:
+        customer_id = normalize_customer_id(customer_id)
 
     if not customer_id or customer_id not in accounts:
          raise HTTPException(
@@ -79,7 +73,3 @@ def customer_lookup_agent(request: CustomerLookupRequest) -> dict[str, Any]:
         "customer_id": customer_id,
         "output": summary
     }
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8002"))
-    uvicorn.run(app, host="0.0.0.0", port=port)

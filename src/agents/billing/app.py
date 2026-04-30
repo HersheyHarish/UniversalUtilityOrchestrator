@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-from calendar import monthrange
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +10,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field
 
+from src.agents.shared.query_parsing import extract_customer_id, parse_query_dates
+
 from .facts import BillingFactsEngine
 from .rag import PolicyRetriever
 
@@ -19,7 +19,7 @@ from .rag import PolicyRetriever
 app = FastAPI(title="Billing Agent")
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[2]
 POLICY_DIR = BASE_DIR / "data" / "policies"
 VECTOR_STORE_DIR = BASE_DIR / "data" / "vector_store"
 
@@ -78,38 +78,18 @@ def resolve_billing_inputs(payload: BillingPayload) -> dict[str, Any]:
         return (f"{b_start}T00:00:00", f"{b_end}T23:59:59")
 
     if customer_id is None:
-        customer_match = re.search(
-            r"\b(?:customer|account|acct|user)\s*(?:id\s*)?(?:#|:|=)?\s*((?:CUST-)?\d+)\b",
-            payload.query,
-            flags=re.IGNORECASE,
-        )
-        if customer_match:
-            customer_id = customer_match.group(1).upper()
-        else:
+        customer_id = extract_customer_id(payload.query)
+        if customer_id is None:
             account_ids = sorted(facts_engine.data.get("accounts", {}).keys())
             if len(account_ids) == 1:
                 customer_id = account_ids[0]
 
     if start_date is None or end_date is None:
-        date_match = re.search(
-            r"\b(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})\b",
-            payload.query,
-        )
-        if date_match:
-            start_date = f"{date_match.group(1)}T00:00:00"
-            end_date = f"{date_match.group(2)}T23:59:59"
-        else:
-            month_match = re.search(
-                r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b",
-                payload.query,
-                flags=re.IGNORECASE,
-            )
-            if month_match:
-                month = datetime.strptime(month_match.group(1), "%B").month
-                year = int(month_match.group(2))
-                last_day = monthrange(year, month)[1]
-                start_date = f"{year:04d}-{month:02d}-01T00:00:00"
-                end_date = f"{year:04d}-{month:02d}-{last_day:02d}T23:59:59"
+        parsed_start, parsed_end = parse_query_dates(payload.query)
+        if start_date is None and parsed_start is not None:
+            start_date = parsed_start.isoformat()
+        if end_date is None and parsed_end is not None:
+            end_date = parsed_end.isoformat()
 
     if start_date is None or end_date is None:
         fallback_window = _latest_invoice_window(customer_id)
@@ -130,6 +110,16 @@ def resolve_billing_inputs(payload: BillingPayload) -> dict[str, Any]:
 
     if customer_id is None:
         raise ValueError("Billing queries must include a customer id, for example `customer CUST-1001`.")
+
+    if start_date is None or end_date is None:
+        customer_invoices = facts_engine.data.get("invoices", {}).get(str(customer_id), [])
+        if customer_invoices:
+            last = customer_invoices[-1]
+            if start_date is None:
+                start_date = last.get("billing_start")
+            if end_date is None:
+                end_date = last.get("billing_end")
+
     if start_date is None or end_date is None:
         raise ValueError(
             "Billing queries must include a date range like `2025-07-01 - 2025-07-31` or a month like `July 2025`."
@@ -162,12 +152,17 @@ def try_llm_summary(query: str, facts: dict[str, Any], citations: list[dict[str,
         f"Policy citations: {citations}\n\n"
         "Write a concise explanation in 3 short paragraphs.\n"
         "Paragraph 1: state the total and the biggest charge drivers with exact amounts.\n"
-        "Paragraph 2: explain the rules behind those charges or credits using the cited policy facts.\n"
-        "Paragraph 3: only mention a next step if there is a meaningful action the customer can take; otherwise say nothing more than one short sentence.\n"
+        "Paragraph 2: explain the rules behind those charges or credits using the cited policy facts. "
+        "Keep units precise: kWh values are energy quantities, not dollar amounts, so never prefix kWh values with `$`.\n"
+        "Paragraph 3: give one practical next step when the facts support it. If there is a seasonal peak surcharge "
+        "line item, recommend shifting high-consumption activities outside peak hours to "
+        "reduce future surcharges. If there are autopay or paperless credits, say those discounts are already active. "
+        "Do not describe taxes or regulatory fees as customer-actionable. "
+        "Do not write meta phrases like 'There is no next step mentioned in this explanation.'\n"
         "Avoid headings, markdown bullets, and vague phrases like 'review your account activity' or 'contact customer service' unless a dispute policy clearly applies."
     )
     try:
-        llm = ChatOllama(model=model_name, temperature=0, base_url=ollama_base_url)
+        llm = ChatOllama(model=model_name, temperature=0, base_url=ollama_base_url, timeout=45)
         response = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
         return response.content.strip() if isinstance(response.content, str) else None
     except Exception as exc:
@@ -200,10 +195,7 @@ def _fallback_summary(facts: dict[str, Any], citations: list[dict[str, Any]]) ->
 
 
 def handle_billing_request(payload: BillingPayload) -> dict[str, Any]:
-    """Main request pipeline for the standalone billing endpoint.
-
-   
-    """
+    """Main request pipeline for the standalone billing endpoint."""
     resolved = resolve_billing_inputs(payload)
     facts = facts_engine.explain_window(
         customer_id=resolved["customer_id"],
