@@ -1,0 +1,84 @@
+{
+  "areas": {
+    "78712": {
+      "service_area": "78712",
+      "city": "Austin",
+      "state": "TX",
+      "utility": "Austin Energy",
+      "timezone": "America/Chicago"
+    },
+    "97201": {
+      "service_area": "97201",
+      "city": "Portland",
+      "state": "OR",
+      "utility": "Portland General Electric",
+      "timezone": "America/Los_Angeles"
+    }
+  },
+  "outages": {
+    "78712": [
+      {
+        "outage_id": "OUT-78712-20190721",
+        "event_start": "2019-07-21T14:00:00-05:00",
+        "event_end": "2019-07-21T22:30:00-05:00",
+        "duration_minutes": 510,
+        "cause": "severe_weather",
+        "scope": "regional",
+        "estimated_customers_affected": 18500,
+        "source": "synthetic_demo"
+      },
+      {
+        "outage_id": "OUT-78712-20190728",
+        "event_start": "2019-07-28T09:15:00-05:00",
+        "event_end": "2019-07-28T10:00:00-05:00",
+        "duration_minutes": 45,
+        "cause": "scheduled_maintenance",
+        "scope": "block",
+        "estimated_customers_affected": 220,
+        "source": "synthetic_demo"
+      },
+      {
+        "outage_id": "OUT-78712-20191007",
+        "event_start": "2019-10-07T11:45:00-05:00",
+        "event_end": "2019-10-07T16:30:00-05:00",
+        "duration_minutes": 285,
+        "cause": "equipment_failure",
+        "scope": "neighborhood",
+        "estimated_customers_affected": 1240,
+        "source": "synthetic_demo"
+      }
+    ],
+    "97201": [
+      {
+        "outage_id": "OUT-97201-20190612",
+        "event_start": "2019-06-12T18:45:00-07:00",
+        "event_end": "2019-06-12T23:30:00-07:00",
+        "duration_minutes": 285,
+        "cause": "windstorm",
+        "scope": "regional",
+        "estimated_customers_affected": 14200,
+        "source": "synthetic_demo"
+      },
+      {
+        "outage_id": "OUT-97201-20190711",
+        "event_start": "2019-07-11T08:00:00-07:00",
+        "event_end": "2019-07-11T08:30:00-07:00",
+        "duration_minutes": 30,
+        "cause": "scheduled_maintenance",
+        "scope": "block",
+        "estimated_customers_affected": 180,
+        "source": "synthetic_demo"
+      },
+      {
+        "outage_id": "OUT-97201-20190918",
+        "event_start": "2019-09-18T14:20:00-07:00",
+        "event_end": "2019-09-18T18:50:00-07:00",
+        "duration_minutes": 270,
+        "cause": "equipment_failure",
+        "scope": "neighborhood",
+        "estimated_customers_affected": 870,
+        "source": "synthetic_demo"
+      }
+    ]
+  }
+}
