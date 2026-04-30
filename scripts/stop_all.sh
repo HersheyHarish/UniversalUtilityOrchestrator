@@ -18,9 +18,22 @@ for pid_file in "$LOG_DIR"/*.pid; do
 done
 
 # Fallback explicit cleanup matching older standard script naming conventions
-pkill -f "src/agents/anomalyAgent.py" || true
-pkill -f "src.billing.app:app" || true
-pkill -f "src/agents/customerLookupAgent.py" || true
-pkill -f "src/agents/conversationSummaryAgent.py" || true
+pkill -f "src/agents/anomaly/api.py" || true
+pkill -f "src.agents.anomaly.anomaly_service:app" || true
+pkill -f "src.agents.billing.app:app" || true
+pkill -f "src.agents.supportAgents.customerLookupAgent:app" || true
+pkill -f "src.agents.supportAgents.conversationSummaryAgent:app" || true
+pkill -f "src.agents.weather.weatherContextAgent:app" || true
+pkill -f "src.agents.outage.outageDetectionAgent:app" || true
+pkill -f "src/agents/supportAgents/customerLookupAgent.py" || true
+pkill -f "src/agents/supportAgents/conversationSummaryAgent.py" || true
+pkill -f "src/agents/weather/weatherContextAgent.py" || true
+pkill -f "src/agents/outage/outageDetectionAgent.py" || true
+pkill -f "src.agents.bill_shock.bill_shock_service:app" || true
+pkill -f "src.agents.program_enrollment.program_simulation_service:app" || true
+pkill -f "src.agents.outreach.outreach_decision_service:app" || true
+pkill -f "src/agents/solar/api.py" || true
+pkill -f "src.agents.solar.solar_monitoring_service:app" || true
+pkill -f "src.agents.payment_risk.payment_risk_service:app" || true
 
 echo "Agents stopped."
