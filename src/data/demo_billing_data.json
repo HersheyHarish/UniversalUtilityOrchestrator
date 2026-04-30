@@ -4,16 +4,24 @@
       "customer_id": "CUST-1001",
       "meter_dataid": 5997,
       "name": "Alice Johnson",
+      "service_address": {
+        "city": "Austin",
+        "state": "TX",
+        "zip": "78712",
+        "latitude": 30.2849,
+        "longitude": -97.7341
+      },
       "plan": {
-        "name": "Residential Saver 12",
-        "base_charge": 180.0,
-        "baseline_kwh": 1000,
+        "name": "Standard Residential",
+        "base_charge": 25.0,
+        "baseline_kwh": 300,
         "overage_rate": 0.14
       },
       "loyalty_months": 18,
       "autopay": true,
       "paperless": true,
-      "solar_export_kwh": 0,
+      "solar_export_kwh": 5186.98,
+      "has_solar": true,
       "medical_exemption": false,
       "tax_exempt": false
     },
@@ -21,6 +29,13 @@
       "customer_id": "CUST-1002",
       "meter_dataid": 3488,
       "name": "Bob Martinez",
+      "service_address": {
+        "city": "Portland",
+        "state": "OR",
+        "zip": "97201",
+        "latitude": 45.5152,
+        "longitude": -122.6784
+      },
       "plan": {
         "name": "Residential Saver 12",
         "base_charge": 180.0,
@@ -30,7 +45,8 @@
       "loyalty_months": 6,
       "autopay": false,
       "paperless": false,
-      "solar_export_kwh": 0,
+      "solar_export_kwh": 852.85,
+      "has_solar": true,
       "medical_exemption": false,
       "tax_exempt": false
     }
@@ -40,29 +56,35 @@
       {
         "billing_start": "2019-05-01",
         "billing_end": "2019-05-31",
-        "total_kwh": 1519.87,
-        "peak_kwh": 480.92,
+        "due_date": "2019-06-25",
+        "issue_date": "2019-05-31",
+        "total_kwh": 379.97,
+        "peak_kwh": 147.8,
+        "solar_export_kwh": 648.54,
+        "solar_production_kwh": 815.31,
+        "grid_import_kwh": 379.97,
         "line_items": [
           {
             "description": "Base Plan",
-            "amount": 180.0,
-            "policy_ref": "plan_terms.md §3.0"
+            "amount": 25.0,
+            "policy_ref": "plan_terms.md §10.0"
           },
           {
             "description": "Usage Overage",
-            "detail": "519.87 kWh × $0.14/kWh",
-            "amount": 72.78,
-            "policy_ref": "plan_terms.md §4.0"
+            "detail": "79.97 kWh × $0.14/kWh",
+            "amount": 11.2,
+            "policy_ref": "plan_terms.md §11.0"
           },
           {
             "description": "Summer Peak Surcharge",
-            "detail": "480.92 peak kWh × $0.08 (capped at $75)",
-            "amount": 38.47,
+            "detail": "147.8 peak kWh × $0.08 (capped at $75)",
+            "amount": 11.82,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Loyalty Credit",
-            "amount": -3.6,
+            "detail": "2% of $25.00 base plan charge",
+            "amount": -0.5,
             "policy_ref": "credits_and_discounts.md §1.0"
           },
           {
@@ -77,8 +99,8 @@
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1519.87 kWh × $0.002",
-            "amount": 3.04,
+            "detail": "379.97 kWh × $0.002",
+            "amount": 0.76,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -88,40 +110,46 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $291.25",
-            "amount": 16.02,
+            "detail": "5.5% of $48.02",
+            "amount": 2.64,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 303.21,
+        "total": 47.42,
         "invoice_id": "INV-1001-2019-05"
       },
       {
         "billing_start": "2019-06-01",
         "billing_end": "2019-06-30",
-        "total_kwh": 1404.81,
-        "peak_kwh": 504.53,
+        "due_date": "2019-07-25",
+        "issue_date": "2019-06-30",
+        "total_kwh": 351.2,
+        "peak_kwh": 167.71,
+        "solar_export_kwh": 1021.58,
+        "solar_production_kwh": 1258.41,
+        "grid_import_kwh": 351.2,
         "line_items": [
           {
             "description": "Base Plan",
-            "amount": 180.0,
-            "policy_ref": "plan_terms.md §3.0"
+            "amount": 25.0,
+            "policy_ref": "plan_terms.md §10.0"
           },
           {
             "description": "Usage Overage",
-            "detail": "404.81 kWh × $0.14/kWh",
-            "amount": 56.67,
-            "policy_ref": "plan_terms.md §4.0"
+            "detail": "51.20 kWh × $0.14/kWh",
+            "amount": 7.17,
+            "policy_ref": "plan_terms.md §11.0"
           },
           {
             "description": "Summer Peak Surcharge",
-            "detail": "504.53 peak kWh × $0.08 (capped at $75)",
-            "amount": 40.36,
+            "detail": "167.71 peak kWh × $0.08 (capped at $75)",
+            "amount": 13.42,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Loyalty Credit",
-            "amount": -3.6,
+            "detail": "2% of $25.00 base plan charge",
+            "amount": -0.5,
             "policy_ref": "credits_and_discounts.md §1.0"
           },
           {
@@ -136,8 +164,8 @@
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1404.81 kWh × $0.002",
-            "amount": 2.81,
+            "detail": "351.20 kWh × $0.002",
+            "amount": 0.7,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -147,40 +175,46 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $277.03",
-            "amount": 15.24,
+            "detail": "5.5% of $45.59",
+            "amount": 2.51,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 287.98,
+        "total": 44.8,
         "invoice_id": "INV-1001-2019-06"
       },
       {
         "billing_start": "2019-07-01",
         "billing_end": "2019-07-31",
-        "total_kwh": 1225.97,
-        "peak_kwh": 379.5,
+        "due_date": "2019-08-25",
+        "issue_date": "2019-07-31",
+        "total_kwh": 306.49,
+        "peak_kwh": 139.93,
+        "solar_export_kwh": 1133.3,
+        "solar_production_kwh": 1393.26,
+        "grid_import_kwh": 306.49,
         "line_items": [
           {
             "description": "Base Plan",
-            "amount": 180.0,
-            "policy_ref": "plan_terms.md §3.0"
+            "amount": 25.0,
+            "policy_ref": "plan_terms.md §10.0"
           },
           {
             "description": "Usage Overage",
-            "detail": "225.97 kWh × $0.14/kWh",
-            "amount": 31.64,
-            "policy_ref": "plan_terms.md §4.0"
+            "detail": "6.49 kWh × $0.14/kWh",
+            "amount": 0.91,
+            "policy_ref": "plan_terms.md §11.0"
           },
           {
             "description": "Summer Peak Surcharge",
-            "detail": "379.5 peak kWh × $0.08 (capped at $75)",
-            "amount": 30.36,
+            "detail": "139.93 peak kWh × $0.08 (capped at $75)",
+            "amount": 11.19,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Loyalty Credit",
-            "amount": -3.6,
+            "detail": "2% of $25.00 base plan charge",
+            "amount": -0.5,
             "policy_ref": "credits_and_discounts.md §1.0"
           },
           {
@@ -195,8 +229,8 @@
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1225.97 kWh × $0.002",
-            "amount": 2.45,
+            "detail": "306.49 kWh × $0.002",
+            "amount": 0.61,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -206,40 +240,46 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $242.0",
-            "amount": 13.31,
+            "detail": "5.5% of $37.10",
+            "amount": 2.04,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 250.66,
+        "total": 35.75,
         "invoice_id": "INV-1001-2019-07"
       },
       {
         "billing_start": "2019-08-01",
         "billing_end": "2019-08-31",
-        "total_kwh": 1446.37,
-        "peak_kwh": 517.78,
+        "due_date": "2019-09-25",
+        "issue_date": "2019-08-31",
+        "total_kwh": 361.59,
+        "peak_kwh": 162.12,
+        "solar_export_kwh": 1070.33,
+        "solar_production_kwh": 1309.69,
+        "grid_import_kwh": 361.59,
         "line_items": [
           {
             "description": "Base Plan",
-            "amount": 180.0,
-            "policy_ref": "plan_terms.md §3.0"
+            "amount": 25.0,
+            "policy_ref": "plan_terms.md §10.0"
           },
           {
             "description": "Usage Overage",
-            "detail": "446.37 kWh × $0.14/kWh",
-            "amount": 62.49,
-            "policy_ref": "plan_terms.md §4.0"
+            "detail": "61.59 kWh × $0.14/kWh",
+            "amount": 8.62,
+            "policy_ref": "plan_terms.md §11.0"
           },
           {
             "description": "Summer Peak Surcharge",
-            "detail": "517.78 peak kWh × $0.08 (capped at $75)",
-            "amount": 41.42,
+            "detail": "162.12 peak kWh × $0.08 (capped at $75)",
+            "amount": 12.97,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Loyalty Credit",
-            "amount": -3.6,
+            "detail": "2% of $25.00 base plan charge",
+            "amount": -0.5,
             "policy_ref": "credits_and_discounts.md §1.0"
           },
           {
@@ -254,8 +294,8 @@
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1446.37 kWh × $0.002",
-            "amount": 2.89,
+            "detail": "361.59 kWh × $0.002",
+            "amount": 0.72,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -265,40 +305,46 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $283.91",
-            "amount": 15.62,
+            "detail": "5.5% of $46.59",
+            "amount": 2.56,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 295.32,
+        "total": 45.87,
         "invoice_id": "INV-1001-2019-08"
       },
       {
         "billing_start": "2019-09-01",
         "billing_end": "2019-09-30",
-        "total_kwh": 1357.4,
-        "peak_kwh": 503.35,
+        "due_date": "2019-10-25",
+        "issue_date": "2019-09-30",
+        "total_kwh": 339.35,
+        "peak_kwh": 144.27,
+        "solar_export_kwh": 828.42,
+        "solar_production_kwh": 1047.88,
+        "grid_import_kwh": 339.35,
         "line_items": [
           {
             "description": "Base Plan",
-            "amount": 180.0,
-            "policy_ref": "plan_terms.md §3.0"
+            "amount": 25.0,
+            "policy_ref": "plan_terms.md §10.0"
           },
           {
             "description": "Usage Overage",
-            "detail": "357.4 kWh × $0.14/kWh",
-            "amount": 50.04,
-            "policy_ref": "plan_terms.md §4.0"
+            "detail": "39.35 kWh × $0.14/kWh",
+            "amount": 5.51,
+            "policy_ref": "plan_terms.md §11.0"
           },
           {
             "description": "Summer Peak Surcharge",
-            "detail": "503.35 peak kWh × $0.08 (capped at $75)",
-            "amount": 40.27,
+            "detail": "144.27 peak kWh × $0.08 (capped at $75)",
+            "amount": 11.54,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Loyalty Credit",
-            "amount": -3.6,
+            "detail": "2% of $25.00 base plan charge",
+            "amount": -0.5,
             "policy_ref": "credits_and_discounts.md §1.0"
           },
           {
@@ -313,8 +359,8 @@
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1357.4 kWh × $0.002",
-            "amount": 2.71,
+            "detail": "339.35 kWh × $0.002",
+            "amount": 0.68,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -324,40 +370,46 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $270.31",
-            "amount": 14.87,
+            "detail": "5.5% of $42.05",
+            "amount": 2.31,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 280.79,
+        "total": 41.04,
         "invoice_id": "INV-1001-2019-09"
       },
       {
         "billing_start": "2019-10-01",
         "billing_end": "2019-10-31",
-        "total_kwh": 1895.49,
-        "peak_kwh": 646.85,
+        "due_date": "2019-11-25",
+        "issue_date": "2019-10-31",
+        "total_kwh": 473.87,
+        "peak_kwh": 166.58,
+        "solar_export_kwh": 484.82,
+        "solar_production_kwh": 705.23,
+        "grid_import_kwh": 473.87,
         "line_items": [
           {
             "description": "Base Plan",
-            "amount": 180.0,
-            "policy_ref": "plan_terms.md §3.0"
+            "amount": 25.0,
+            "policy_ref": "plan_terms.md §10.0"
           },
           {
             "description": "Usage Overage",
-            "detail": "895.49 kWh × $0.14/kWh",
-            "amount": 125.37,
-            "policy_ref": "plan_terms.md §4.0"
+            "detail": "173.87 kWh × $0.14/kWh",
+            "amount": 24.34,
+            "policy_ref": "plan_terms.md §11.0"
           },
           {
             "description": "Summer Peak Surcharge",
-            "detail": "646.85 peak kWh × $0.08 (capped at $75)",
-            "amount": 51.75,
+            "detail": "166.58 peak kWh × $0.08 (capped at $75)",
+            "amount": 13.33,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Loyalty Credit",
-            "amount": -3.6,
+            "detail": "2% of $25.00 base plan charge",
+            "amount": -0.5,
             "policy_ref": "credits_and_discounts.md §1.0"
           },
           {
@@ -372,8 +424,8 @@
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1895.49 kWh × $0.002",
-            "amount": 3.79,
+            "detail": "473.87 kWh × $0.002",
+            "amount": 0.95,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -383,12 +435,12 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $357.12",
-            "amount": 19.64,
+            "detail": "5.5% of $62.67",
+            "amount": 3.45,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 373.45,
+        "total": 63.07,
         "invoice_id": "INV-1001-2019-10"
       }
     ],
@@ -396,8 +448,13 @@
       {
         "billing_start": "2019-05-01",
         "billing_end": "2019-05-31",
-        "total_kwh": 2530.72,
-        "peak_kwh": 980.24,
+        "due_date": "2019-06-25",
+        "issue_date": "2019-05-31",
+        "total_kwh": 632.68,
+        "peak_kwh": 266.37,
+        "solar_export_kwh": 110.66,
+        "solar_production_kwh": 329.63,
+        "grid_import_kwh": 632.68,
         "line_items": [
           {
             "description": "Base Plan",
@@ -405,21 +462,15 @@
             "policy_ref": "plan_terms.md §3.0"
           },
           {
-            "description": "Usage Overage",
-            "detail": "1530.72 kWh × $0.14/kWh",
-            "amount": 214.3,
-            "policy_ref": "plan_terms.md §4.0"
-          },
-          {
             "description": "Summer Peak Surcharge",
-            "detail": "980.24 peak kWh × $0.08 (capped at $75)",
-            "amount": 75.0,
+            "detail": "266.37 peak kWh × $0.08 (capped at $75)",
+            "amount": 21.31,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "2530.72 kWh × $0.002",
-            "amount": 5.06,
+            "detail": "632.68 kWh × $0.002",
+            "amount": 1.27,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -429,19 +480,24 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $469.3",
-            "amount": 25.81,
+            "detail": "5.5% of $201.31",
+            "amount": 11.07,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 503.67,
+        "total": 217.15,
         "invoice_id": "INV-1002-2019-05"
       },
       {
         "billing_start": "2019-06-01",
         "billing_end": "2019-06-30",
-        "total_kwh": 2494.51,
-        "peak_kwh": 982.91,
+        "due_date": "2019-07-25",
+        "issue_date": "2019-06-30",
+        "total_kwh": 623.63,
+        "peak_kwh": 272.71,
+        "solar_export_kwh": 150.59,
+        "solar_production_kwh": 375.32,
+        "grid_import_kwh": 623.63,
         "line_items": [
           {
             "description": "Base Plan",
@@ -449,21 +505,15 @@
             "policy_ref": "plan_terms.md §3.0"
           },
           {
-            "description": "Usage Overage",
-            "detail": "1494.51 kWh × $0.14/kWh",
-            "amount": 209.23,
-            "policy_ref": "plan_terms.md §4.0"
-          },
-          {
             "description": "Summer Peak Surcharge",
-            "detail": "982.91 peak kWh × $0.08 (capped at $75)",
-            "amount": 75.0,
+            "detail": "272.71 peak kWh × $0.08 (capped at $75)",
+            "amount": 21.82,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "2494.51 kWh × $0.002",
-            "amount": 4.99,
+            "detail": "623.63 kWh × $0.002",
+            "amount": 1.25,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -473,19 +523,24 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $464.23",
-            "amount": 25.53,
+            "detail": "5.5% of $201.82",
+            "amount": 11.1,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 498.25,
+        "total": 217.67,
         "invoice_id": "INV-1002-2019-06"
       },
       {
         "billing_start": "2019-07-01",
         "billing_end": "2019-07-31",
-        "total_kwh": 3061.29,
-        "peak_kwh": 1242.14,
+        "due_date": "2019-08-25",
+        "issue_date": "2019-07-31",
+        "total_kwh": 765.32,
+        "peak_kwh": 339.51,
+        "solar_export_kwh": 139.54,
+        "solar_production_kwh": 418.96,
+        "grid_import_kwh": 765.32,
         "line_items": [
           {
             "description": "Base Plan",
@@ -493,21 +548,15 @@
             "policy_ref": "plan_terms.md §3.0"
           },
           {
-            "description": "Usage Overage",
-            "detail": "2061.29 kWh × $0.14/kWh",
-            "amount": 288.58,
-            "policy_ref": "plan_terms.md §4.0"
-          },
-          {
             "description": "Summer Peak Surcharge",
-            "detail": "1242.14 peak kWh × $0.08 (capped at $75)",
-            "amount": 75.0,
+            "detail": "339.51 peak kWh × $0.08 (capped at $75)",
+            "amount": 27.16,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "3061.29 kWh × $0.002",
-            "amount": 6.12,
+            "detail": "765.32 kWh × $0.002",
+            "amount": 1.53,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -517,19 +566,24 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $543.58",
-            "amount": 29.9,
+            "detail": "5.5% of $207.16",
+            "amount": 11.39,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 583.1,
+        "total": 223.58,
         "invoice_id": "INV-1002-2019-07"
       },
       {
         "billing_start": "2019-08-01",
         "billing_end": "2019-08-31",
-        "total_kwh": 1885.83,
-        "peak_kwh": 721.43,
+        "due_date": "2019-09-25",
+        "issue_date": "2019-08-31",
+        "total_kwh": 471.46,
+        "peak_kwh": 201.91,
+        "solar_export_kwh": 193.4,
+        "solar_production_kwh": 404.77,
+        "grid_import_kwh": 471.46,
         "line_items": [
           {
             "description": "Base Plan",
@@ -537,21 +591,15 @@
             "policy_ref": "plan_terms.md §3.0"
           },
           {
-            "description": "Usage Overage",
-            "detail": "885.83 kWh × $0.14/kWh",
-            "amount": 124.02,
-            "policy_ref": "plan_terms.md §4.0"
-          },
-          {
             "description": "Summer Peak Surcharge",
-            "detail": "721.43 peak kWh × $0.08 (capped at $75)",
-            "amount": 57.71,
+            "detail": "201.91 peak kWh × $0.08 (capped at $75)",
+            "amount": 16.15,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1885.83 kWh × $0.002",
-            "amount": 3.77,
+            "detail": "471.46 kWh × $0.002",
+            "amount": 0.94,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -561,19 +609,24 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $361.73",
-            "amount": 19.9,
+            "detail": "5.5% of $196.15",
+            "amount": 10.79,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 388.9,
+        "total": 211.38,
         "invoice_id": "INV-1002-2019-08"
       },
       {
         "billing_start": "2019-09-01",
         "billing_end": "2019-09-30",
-        "total_kwh": 1888.96,
-        "peak_kwh": 826.88,
+        "due_date": "2019-10-25",
+        "issue_date": "2019-09-30",
+        "total_kwh": 472.24,
+        "peak_kwh": 219.76,
+        "solar_export_kwh": 178.19,
+        "solar_production_kwh": 343.72,
+        "grid_import_kwh": 472.24,
         "line_items": [
           {
             "description": "Base Plan",
@@ -581,21 +634,15 @@
             "policy_ref": "plan_terms.md §3.0"
           },
           {
-            "description": "Usage Overage",
-            "detail": "888.96 kWh × $0.14/kWh",
-            "amount": 124.45,
-            "policy_ref": "plan_terms.md §4.0"
-          },
-          {
             "description": "Summer Peak Surcharge",
-            "detail": "826.88 peak kWh × $0.08 (capped at $75)",
-            "amount": 66.15,
+            "detail": "219.76 peak kWh × $0.08 (capped at $75)",
+            "amount": 17.58,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "1888.96 kWh × $0.002",
-            "amount": 3.78,
+            "detail": "472.24 kWh × $0.002",
+            "amount": 0.94,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -605,19 +652,24 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $370.6",
-            "amount": 20.38,
+            "detail": "5.5% of $197.58",
+            "amount": 10.87,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 398.26,
+        "total": 212.89,
         "invoice_id": "INV-1002-2019-09"
       },
       {
         "billing_start": "2019-10-01",
         "billing_end": "2019-10-31",
-        "total_kwh": 3428.51,
-        "peak_kwh": 1305.16,
+        "due_date": "2019-11-25",
+        "issue_date": "2019-10-31",
+        "total_kwh": 857.13,
+        "peak_kwh": 327.95,
+        "solar_export_kwh": 80.46,
+        "solar_production_kwh": 235.44,
+        "grid_import_kwh": 857.13,
         "line_items": [
           {
             "description": "Base Plan",
@@ -625,21 +677,15 @@
             "policy_ref": "plan_terms.md §3.0"
           },
           {
-            "description": "Usage Overage",
-            "detail": "2428.51 kWh × $0.14/kWh",
-            "amount": 339.99,
-            "policy_ref": "plan_terms.md §4.0"
-          },
-          {
             "description": "Summer Peak Surcharge",
-            "detail": "1305.16 peak kWh × $0.08 (capped at $75)",
-            "amount": 75.0,
+            "detail": "327.95 peak kWh × $0.08 (capped at $75)",
+            "amount": 26.24,
             "policy_ref": "surcharge_policy.md §4.0, §5.0"
           },
           {
             "description": "Renewable Energy Fund",
-            "detail": "3428.51 kWh × $0.002",
-            "amount": 6.86,
+            "detail": "857.13 kWh × $0.002",
+            "amount": 1.71,
             "policy_ref": "taxes_and_fees.md §3.0"
           },
           {
@@ -649,12 +695,12 @@
           },
           {
             "description": "City Utility Tax",
-            "detail": "5.5% of $594.99",
-            "amount": 32.72,
+            "detail": "5.5% of $206.24",
+            "amount": 11.34,
             "policy_ref": "taxes_and_fees.md §1.0"
           }
         ],
-        "total": 638.07,
+        "total": 222.79,
         "invoice_id": "INV-1002-2019-10"
       }
     ]
@@ -664,88 +710,124 @@
       {
         "billing_start": "2019-05-01",
         "billing_end": "2019-05-31",
-        "total_kwh": 1519.87,
-        "peak_kwh": 480.92,
-        "off_peak_kwh": 1038.96
+        "total_kwh": 546.74,
+        "peak_kwh": 147.8,
+        "off_peak_kwh": 398.94,
+        "solar_export_kwh": 648.54,
+        "solar_production_kwh": 815.31,
+        "grid_import_kwh": 379.97
       },
       {
         "billing_start": "2019-06-01",
         "billing_end": "2019-06-30",
-        "total_kwh": 1404.81,
-        "peak_kwh": 504.53,
-        "off_peak_kwh": 900.28
+        "total_kwh": 588.03,
+        "peak_kwh": 167.71,
+        "off_peak_kwh": 420.32,
+        "solar_export_kwh": 1021.58,
+        "solar_production_kwh": 1258.41,
+        "grid_import_kwh": 351.2
       },
       {
         "billing_start": "2019-07-01",
         "billing_end": "2019-07-31",
-        "total_kwh": 1225.97,
-        "peak_kwh": 379.5,
-        "off_peak_kwh": 846.48
+        "total_kwh": 566.45,
+        "peak_kwh": 139.93,
+        "off_peak_kwh": 426.52,
+        "solar_export_kwh": 1133.3,
+        "solar_production_kwh": 1393.26,
+        "grid_import_kwh": 306.49
       },
       {
         "billing_start": "2019-08-01",
         "billing_end": "2019-08-31",
-        "total_kwh": 1446.37,
-        "peak_kwh": 517.78,
-        "off_peak_kwh": 928.59
+        "total_kwh": 600.95,
+        "peak_kwh": 162.12,
+        "off_peak_kwh": 438.84,
+        "solar_export_kwh": 1070.33,
+        "solar_production_kwh": 1309.69,
+        "grid_import_kwh": 361.59
       },
       {
         "billing_start": "2019-09-01",
         "billing_end": "2019-09-30",
-        "total_kwh": 1357.4,
-        "peak_kwh": 503.35,
-        "off_peak_kwh": 854.05
+        "total_kwh": 558.81,
+        "peak_kwh": 144.27,
+        "off_peak_kwh": 414.54,
+        "solar_export_kwh": 828.42,
+        "solar_production_kwh": 1047.88,
+        "grid_import_kwh": 339.35
       },
       {
         "billing_start": "2019-10-01",
         "billing_end": "2019-10-31",
-        "total_kwh": 1895.49,
-        "peak_kwh": 646.85,
-        "off_peak_kwh": 1248.64
+        "total_kwh": 694.29,
+        "peak_kwh": 166.58,
+        "off_peak_kwh": 527.71,
+        "solar_export_kwh": 484.82,
+        "solar_production_kwh": 705.23,
+        "grid_import_kwh": 473.87
       }
     ],
     "CUST-1002": [
       {
         "billing_start": "2019-05-01",
         "billing_end": "2019-05-31",
-        "total_kwh": 2530.72,
-        "peak_kwh": 980.24,
-        "off_peak_kwh": 1550.47
+        "total_kwh": 851.65,
+        "peak_kwh": 266.37,
+        "off_peak_kwh": 585.28,
+        "solar_export_kwh": 110.66,
+        "solar_production_kwh": 329.63,
+        "grid_import_kwh": 632.68
       },
       {
         "billing_start": "2019-06-01",
         "billing_end": "2019-06-30",
-        "total_kwh": 2494.51,
-        "peak_kwh": 982.91,
-        "off_peak_kwh": 1511.6
+        "total_kwh": 848.35,
+        "peak_kwh": 272.71,
+        "off_peak_kwh": 575.64,
+        "solar_export_kwh": 150.59,
+        "solar_production_kwh": 375.32,
+        "grid_import_kwh": 623.63
       },
       {
         "billing_start": "2019-07-01",
         "billing_end": "2019-07-31",
-        "total_kwh": 3061.29,
-        "peak_kwh": 1242.14,
-        "off_peak_kwh": 1819.15
+        "total_kwh": 1044.74,
+        "peak_kwh": 339.51,
+        "off_peak_kwh": 705.24,
+        "solar_export_kwh": 139.54,
+        "solar_production_kwh": 418.96,
+        "grid_import_kwh": 765.32
       },
       {
         "billing_start": "2019-08-01",
         "billing_end": "2019-08-31",
-        "total_kwh": 1885.83,
-        "peak_kwh": 721.43,
-        "off_peak_kwh": 1164.4
+        "total_kwh": 682.82,
+        "peak_kwh": 201.91,
+        "off_peak_kwh": 480.92,
+        "solar_export_kwh": 193.4,
+        "solar_production_kwh": 404.77,
+        "grid_import_kwh": 471.46
       },
       {
         "billing_start": "2019-09-01",
         "billing_end": "2019-09-30",
-        "total_kwh": 1888.96,
-        "peak_kwh": 826.88,
-        "off_peak_kwh": 1062.08
+        "total_kwh": 637.76,
+        "peak_kwh": 219.76,
+        "off_peak_kwh": 418.01,
+        "solar_export_kwh": 178.19,
+        "solar_production_kwh": 343.72,
+        "grid_import_kwh": 472.24
       },
       {
         "billing_start": "2019-10-01",
         "billing_end": "2019-10-31",
-        "total_kwh": 3428.51,
-        "peak_kwh": 1305.16,
-        "off_peak_kwh": 2123.35
+        "total_kwh": 1012.11,
+        "peak_kwh": 327.95,
+        "off_peak_kwh": 684.16,
+        "solar_export_kwh": 80.46,
+        "solar_production_kwh": 235.44,
+        "grid_import_kwh": 857.13
       }
     ]
   }
