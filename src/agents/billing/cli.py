@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 """Entry point for the standalone billing agent.
+
+Run as a CLI for interactive testing:    python -m src.agents.billing.cli
 """
 
-import argparse
-import os
 from pprint import pprint
 
-import uvicorn
-
-from src.billing.app import BillingPayload, app, handle_billing_request
+from src.agents.billing.app import BillingPayload, app, handle_billing_request
 
 
 def run_cli() -> None:
@@ -38,15 +36,4 @@ def run_cli() -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--cli",
-        action="store_true",
-        help="Run the interactive CLI instead of the HTTP server.",
-    )
-    args = parser.parse_args()
-
-    if args.cli:
-        run_cli()
-    else:
-        uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8001")))
+    run_cli()

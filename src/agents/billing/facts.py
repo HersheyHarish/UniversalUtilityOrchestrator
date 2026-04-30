@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_PATH = BASE_DIR / "data" / "demo_billing_data.json"
 
 

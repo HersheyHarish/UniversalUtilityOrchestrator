@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PORT=8003
+
+WORKDIR /app
+
+# Build context is repo root: `docker build -f src/agents/supportAgents/Dockerfile.conversationSummary .`
+COPY src/agents/supportAgents/requirements.conversationSummary.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/agents/supportAgents/ src/agents/supportAgents/
+COPY src/agents/shared/ src/agents/shared/
+
+EXPOSE 8003
+CMD ["uvicorn", "src.agents.supportAgents.conversationSummaryAgent:app", "--host", "0.0.0.0", "--port", "8003"]
