@@ -33,10 +33,17 @@ There is no limit to the number of referral credits a customer can earn.
 
 ## Section 5.0: Solar Export Credit (Net Metering)
 
-Customers with eligible solar installations who export excess generation
-to the grid receive a credit at the net metering rate of $0.06 per kWh
-exported. Solar export credits appear as "Solar Export Credit" on the
-bill and are calculated based on the grid export meter readings.
+Solar export credits are available **only to customers enrolled in the Solar
+Net Metering rate plan**. Customers on Residential Saver 12 or Standard
+Residential are not eligible for export credits, even if they have on-site
+solar generation that exports excess energy to the grid; for those plans,
+solar offsets the customer's grid import (reducing billable kWh) but does
+not generate a separate credit.
+
+For Solar Net Metering enrollees, exported energy is credited at the net
+metering rate of $0.06 per kWh exported. Solar export credits appear as
+"Solar Export Credit" on the bill and are calculated based on the grid
+export meter readings.
 
 Credits exceeding the monthly bill amount roll over to the next billing
 cycle. Accumulated credits exceeding $500.00 may be requested as a
