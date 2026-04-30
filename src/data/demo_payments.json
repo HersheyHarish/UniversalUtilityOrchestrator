@@ -1,0 +1,138 @@
+{
+  "schema_notes": "Snapshot of payment status per customer as of 2019-11-15. `current_balance_usd`, `days_past_due`, and `delinquency_stage` are roll-up fields a real collections system would maintain. `payment_history` is the raw event log used for trend analysis.",
+  "as_of_date": "2019-11-15",
+  "accounts": {
+    "CUST-1001": {
+      "customer_id": "CUST-1001",
+      "current_balance_usd": 0.0,
+      "days_past_due": 0,
+      "delinquency_stage": "current",
+      "shutoff_warning_active": false,
+      "shutoff_warning_date": null,
+      "autopay_enabled": true,
+      "last_contact_at": null,
+      "payment_history": [
+        {
+          "invoice_id": "INV-1001-2019-05",
+          "due_date": "2019-06-25",
+          "paid_date": "2019-06-23",
+          "amount_due": 47.42,
+          "amount_paid": 47.42,
+          "status": "on_time"
+        },
+        {
+          "invoice_id": "INV-1001-2019-06",
+          "due_date": "2019-07-25",
+          "paid_date": "2019-07-23",
+          "amount_due": 44.80,
+          "amount_paid": 44.80,
+          "status": "on_time"
+        },
+        {
+          "invoice_id": "INV-1001-2019-07",
+          "due_date": "2019-08-25",
+          "paid_date": "2019-08-23",
+          "amount_due": 35.75,
+          "amount_paid": 35.75,
+          "status": "on_time"
+        },
+        {
+          "invoice_id": "INV-1001-2019-08",
+          "due_date": "2019-09-25",
+          "paid_date": "2019-09-23",
+          "amount_due": 45.87,
+          "amount_paid": 45.87,
+          "status": "on_time"
+        },
+        {
+          "invoice_id": "INV-1001-2019-09",
+          "due_date": "2019-10-25",
+          "paid_date": "2019-10-23",
+          "amount_due": 41.04,
+          "amount_paid": 41.04,
+          "status": "on_time"
+        },
+        {
+          "invoice_id": "INV-1001-2019-10",
+          "due_date": "2019-11-25",
+          "paid_date": "2019-11-13",
+          "amount_due": 63.07,
+          "amount_paid": 63.07,
+          "status": "on_time"
+        }
+      ],
+      "payment_plans": [],
+      "assistance_history": []
+    },
+    "CUST-1002": {
+      "customer_id": "CUST-1002",
+      "current_balance_usd": 770.64,
+      "days_past_due": 82,
+      "delinquency_stage": "second_warning",
+      "shutoff_warning_active": true,
+      "shutoff_warning_date": "2019-12-01",
+      "autopay_enabled": false,
+      "last_contact_at": null,
+      "payment_history": [
+        {
+          "invoice_id": "INV-1002-2019-05",
+          "due_date": "2019-06-25",
+          "paid_date": "2019-07-03",
+          "amount_due": 217.15,
+          "amount_paid": 217.15,
+          "status": "late"
+        },
+        {
+          "invoice_id": "INV-1002-2019-06",
+          "due_date": "2019-07-25",
+          "paid_date": "2019-08-06",
+          "amount_due": 217.67,
+          "amount_paid": 217.67,
+          "status": "late"
+        },
+        {
+          "invoice_id": "INV-1002-2019-07",
+          "due_date": "2019-08-25",
+          "paid_date": "2019-08-30",
+          "amount_due": 223.58,
+          "amount_paid": 100.0,
+          "status": "partial"
+        },
+        {
+          "invoice_id": "INV-1002-2019-08",
+          "due_date": "2019-09-25",
+          "paid_date": null,
+          "amount_due": 211.38,
+          "amount_paid": 0.0,
+          "status": "missed"
+        },
+        {
+          "invoice_id": "INV-1002-2019-09",
+          "due_date": "2019-10-25",
+          "paid_date": null,
+          "amount_due": 212.89,
+          "amount_paid": 0.0,
+          "status": "missed"
+        },
+        {
+          "invoice_id": "INV-1002-2019-10",
+          "due_date": "2019-11-25",
+          "paid_date": null,
+          "amount_due": 222.79,
+          "amount_paid": 0.0,
+          "status": "pending"
+        }
+      ],
+      "payment_plans": [
+        {
+          "plan_id": "PP-1002-2018",
+          "started": "2018-03-01",
+          "ended": "2018-05-31",
+          "status": "completed",
+          "monthly_amount": 75.0
+        }
+      ],
+      "assistance_history": []
+    }
+  }
+}
