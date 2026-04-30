@@ -87,3 +87,9 @@ Stop both agent containers:
 ```bash
 bash stop_agents.sh
 ```
+
+## Enterprise Delivery Assets
+
+- Handoff pack for SI transition: `handoff/`
+- Terraform baseline for cloud environments: `infra/terraform/`
+- CI/CD workflows: `.github/workflows/`
