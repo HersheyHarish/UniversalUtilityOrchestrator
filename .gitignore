@@ -60,6 +60,7 @@ local.settings.json
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
+*.pid
 logs/
 
 # ── OS artifacts ──────────────────────────────────────────────────────────────
@@ -85,15 +86,31 @@ kubeconfig
 *.orig
 
 .python_packages
-# Local anomaly data
+
+# ── Local anomaly data ──────────────────────────────────────────────────────────────────────
 src/data/*.csv
 !src/data/15minute_data_sample.csv
 
-# Generated billing retrieval cache
+# ── Generated billing retrieval cache ──────────────────────────────────────────────────────────────────────
 src/data/vector_store/
 
-# Local Postman workspace files
+# ── Local Postman workspace files ──────────────────────────────────────────────────────────────────────
 .postman/
+postman/scripts/logs/
+
+# ── Runtime Output ──────────────────────────────────────────────────────────────────────
+src/data/traces/
+src/data/outreach_state.json
+src/data/outreach_log.json
+
+# ── Superseded by deploy_all_agents.sh ──────────────────────────────────────────────────
+scripts/deploy_all_agents.sh
+
+# ── Proactive Outreach Agent (not ready) ────────────────────────────────────────────────
+src/agents/outreach/
+scripts/proactive_outreach_runner.py
+scripts/run_outreach.sh
+scripts/com.uuo.outreach.plist.example
 postman/
 
 # ── Debug & Runtime ──────────────────────────────────────────────────────────
