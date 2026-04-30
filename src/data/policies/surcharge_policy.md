@@ -9,7 +9,7 @@ the customer's consumption during peak hours within those seasons.
 
 ## Section 2.0: Peak Season Dates
 
-The summer peak season runs from June 1 through September 30 each year.
+The summer peak season runs from May 1 through October 31 each year.
 The winter peak season runs from December 1 through February 28 (or 29
 in leap years). Months outside these windows are considered off-peak and
 no seasonal surcharge is applied.
