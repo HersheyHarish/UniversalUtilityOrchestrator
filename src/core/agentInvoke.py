@@ -35,7 +35,7 @@ class AgentInvoker:
 
         try:
             timeout = getattr(agent, 'timeout_seconds', self.timeout_seconds) or self.timeout_seconds
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 response = await client.post(agent.endpoint, json=payload, headers=headers)
                 response.raise_for_status()
         except httpx.RequestError as exc:

@@ -48,7 +48,7 @@ class AgentRegistry:
     def load(cls, path: Path) -> "AgentRegistry":
         with path.open("r", encoding="utf-8") as handle:
             raw = json.load(handle)
-        agents = [AgentDefinition.from_dict(item) for item in raw.get("agents", [])]
+        agents = [AgentDefinition.from_dict(item) for item in raw.get("agents", []) if item.get("enabled", True)]
         return cls(agents=agents, registry_path=path)
 
     def get(self, agent_name: str) -> AgentDefinition | None:
