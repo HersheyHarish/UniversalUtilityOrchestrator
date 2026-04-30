@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import Any, Optional
-
-import uvicorn
+import os
 from fastapi import FastAPI, HTTPException
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
@@ -71,7 +68,3 @@ def handle_summary(request: SummaryRequest) -> dict[str, Any]:
     except Exception as exc:
         logger.error(f"Summarizer LLM failed: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8003"))
-    uvicorn.run(app, host="0.0.0.0", port=port)

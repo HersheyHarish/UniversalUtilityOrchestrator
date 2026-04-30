@@ -1,0 +1,8 @@
+fastapi==0.109.0
+uvicorn==0.40.0
+pydantic==2.12.5
+langchain-core>=0.3.0
+langchain-ollama>=0.3.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
+pandas>=2.0.0
