@@ -54,7 +54,8 @@ class PlanningService:
             "- Use `required_capabilities` to map steps to available agents.\n"
             "- VERY IMPORTANT: You must extract arguments from the user query matching the chosen agent's `input_schema` and place them tightly in the `parameters` JSON string field. The value must be raw JSON textual format `{...}`.\n"
             "- If the schema needs dates (like `start_date`, `end_date`), convert rough phrases like 'last week' into standard ISO format dates.\n"
-            "- For RAG-based agents: read the `query` field description in the schema carefully. If it says to embed identifiers or dates INTO the query string, you MUST compose a rich natural-language question that includes those values inline (e.g. 'Explain the billing charges for customer CUST-1001 from 2025-07-01 - 2025-07-31'). The agent uses the query text for retrieval, so vague queries will fail."
+            "- For RAG-based agents: read the `query` field description in the schema carefully. If it says to embed identifiers or dates INTO the query string, you MUST compose a rich natural-language question that includes those values inline (e.g. 'Explain the billing charges for customer CUST-1001 from 2025-07-01 - 2025-07-31'). The agent uses the query text for retrieval, so vague queries will fail.\n"
+            "- When solar_performance_credit_loss_agent and weather_context_agent both appear in a plan, always schedule weather_context_agent first (no dependencies) and make solar_performance_credit_loss_agent depend on it. The solar agent uses weather data to distinguish system faults from cloudy-day dips; without it, legitimate weather-driven drops are misreported as system problems."
         )
 
         planning_user_message = (
