@@ -1,0 +1,78 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.hero p {
+  margin: 8px 0 0;
+  color: #9fb0c7;
+}
+
+.section {
+  background: #101a2d;
+  border: 1px solid #24324f;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.section h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid #2a3a5e;
+  background: #12203a;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.button {
+  background: #2563eb;
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.chip {
+  font-size: 12px;
+  color: #c7d8f1;
+  border: 1px solid #3a4f76;
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.error-banner {
+  background: #40131b;
+  border: 1px solid #7f1d2d;
+  color: #fecdd3;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.loading-banner {
+  color: #c0d5ff;
+}
