@@ -14,11 +14,13 @@ if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
 
 from orchestrator import UniversalOrchestrator
+from pii_masking import PIIMasker
 from telemetry import setup_telemetry
 
 setup_telemetry()
 
 LOGGER = logging.getLogger("orchestrator_serverless")
+PII_MASKER = PIIMasker()
 
 AUTH_LEVEL_BY_NAME: dict[str, func.AuthLevel] = {
     "ANONYMOUS": func.AuthLevel.ANONYMOUS,
@@ -77,15 +79,16 @@ def _extract_query(payload: dict[str, Any]) -> str:
 
 
 async def _run_orchestration(user_query: str, source: str, session_id: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    trace = await _get_orchestrator().run_with_trace(user_query, session_id)
+    masked_query = PII_MASKER.mask_text(user_query)
+    trace = await _get_orchestrator().run_with_trace(masked_query, session_id)
     return {
         "source": source,
-        "query": user_query,
+        "query": masked_query,
         "session_id": trace.get("session_id"),
         "status": trace.get("status"),
         "final_answer": trace.get("final_answer"),
         "trace": trace,
-        "metadata": metadata or {},
+        "metadata": PII_MASKER.mask_any(metadata or {}),
     }
 
 

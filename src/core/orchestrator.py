@@ -21,6 +21,7 @@ from planner import ExecutionPlan, PlanStep, PlanningService
 from dagCreator import DAGCreator
 from agentInvoke import AgentInvocationResult, AgentInvoker
 from memory import CosmosDBMemoryStore, create_memory_store
+from pii_masking import PIIMasker
 from telemetry import get_tracer
 import tiktoken
 
@@ -37,6 +38,7 @@ class UniversalOrchestrator:
 
         self.registry = AgentRegistry.load(registry_file)
         self.memory = create_memory_store()
+        pii_cfg = self.config.get("pii_masking", {})
 
         llm_cfg = self.config.get("llm", {})
         
@@ -78,6 +80,7 @@ class UniversalOrchestrator:
         self.agent_invoker = AgentInvoker(timeout_seconds=int(orchestration_cfg.get("timeout_seconds", 30)))
         self.halt_on_step_failure = bool(orchestration_cfg.get("halt_on_step_failure", True))
         self.use_demo_invoke = bool(orchestration_cfg.get("use_demo_invoke", False))
+        self.pii_masker = PIIMasker(patterns=pii_cfg.get("patterns"))
         
         self.evaluator = None
         if evaluation_cfg.get("enabled", True):
@@ -116,11 +119,12 @@ class UniversalOrchestrator:
                     "final_answer": f"Request blocked by input guardrails: {guardrail_result.reason}",
                     "session_id": session_id,
                 }
+            masked_query = self.pii_masker.mask_text(guardrail_result.sanitized_query)
 
             # Step 2: Create execution plan using the planning service
             logger.info("[Hub] Building execution plan...")
             with tracer.start_as_current_span("build_plan"):
-                plan = await self.planner.create_plan(guardrail_result.sanitized_query, self.registry)
+                plan = await self.planner.create_plan(masked_query, self.registry)
                 execution_layers = self.dag_creator.build_execution_layers(plan)
 
             # 3: Execute the plan layer by layer, invoking agents and collecting results
@@ -132,7 +136,7 @@ class UniversalOrchestrator:
                 with tracer.start_as_current_span(f"execute_layer_{layer_index}"):
                     # Execute steps in the current layer concurrently
                     tasks = [
-                        self._execute_step(step, guardrail_result.sanitized_query, step_results)
+                        self._execute_step(step, masked_query, step_results)
                         for step in layer
                     ]
                     layer_results = await asyncio.gather(*tasks)
@@ -140,19 +144,22 @@ class UniversalOrchestrator:
                     for step, step_result in zip(layer, layer_results):
                         step_results[step.id] = step_result
                         if self.halt_on_step_failure and step_result["status"] == "failed":
+                            safe_step_results = self.pii_masker.mask_any(step_results)
+                            safe_step_result = self.pii_masker.mask_any(step_result)
                             result_val = {
                                 "status": "failed",
                                 "plan": plan.model_dump(),
-                                "steps": step_results,
-                                "final_answer": self._summarize_failure(step, step_result),
+                                "steps": safe_step_results,
+                                "final_answer": self._summarize_failure(step, safe_step_result),
                                 "session_id": session_id,
                             }
                             await self.memory.save_trace(session_id, result_val)
                             return result_val
             
             # 4: Synthesize final answer from execution trace
+            safe_step_results = self.pii_masker.mask_any(step_results)
             with tracer.start_as_current_span("synthesize_answer"):
-                final_answer = await self._synthesize_final_answer(guardrail_result.sanitized_query, plan, step_results)
+                final_answer = await self._synthesize_final_answer(masked_query, plan, safe_step_results)
             
             # 5: Optionally evaluate the run
             evaluation_blob = None
@@ -161,9 +168,9 @@ class UniversalOrchestrator:
                 with tracer.start_as_current_span("run_evaluation"):
                     try:
                         eval_result = await self.evaluator.aevaluate(
-                            user_query=guardrail_result.sanitized_query,
+                            user_query=masked_query,
                             plan_dict=plan.model_dump(),
-                            step_results=step_results,
+                            step_results=safe_step_results,
                             final_answer=final_answer
                         )
                         evaluation_blob = {
@@ -179,13 +186,13 @@ class UniversalOrchestrator:
             total_tokens = 0
             if self.tokenizer:
                  # roughly estimate input tokens used
-                 content = str(plan.model_dump()) + str(step_results) + final_answer
+                 content = str(plan.model_dump()) + str(safe_step_results) + final_answer
                  total_tokens = len(self.tokenizer.encode(content))
             
             result_val = {
                 "status": "completed",
                 "plan": plan.model_dump(),
-                "steps": step_results,
+                "steps": safe_step_results,
                 "final_answer": final_answer,
                 "session_id": session_id,
                 "evaluation": evaluation_blob,
