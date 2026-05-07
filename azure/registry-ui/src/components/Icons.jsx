@@ -11,6 +11,8 @@ const Ic = ({ d, size = 16, style, className }) => (
 export const IcDashboard    = (p) => <Ic {...p} d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10" />;
 export const IcAgents       = (p) => <Ic {...p} d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />;
 export const IcHealth       = (p) => <Ic {...p} d="M22 12h-4l-3 9L9 3l-3 9H2" />;
+export const IcMetrics      = (p) => <Ic {...p} d="M3 3v18h18 M7 14l3-3 3 2 4-5" />;
+export const IcTrace        = (p) => <Ic {...p} d="M4 7h6l2 10 2-6h6 M4 17h4 M16 7h4" />;
 export const IcPlus         = (p) => <Ic {...p} d="M12 5v14 M5 12h14" />;
 export const IcSearch       = (p) => <Ic {...p} d="M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0" />;
 export const IcEdit         = (p) => <Ic {...p} d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />;

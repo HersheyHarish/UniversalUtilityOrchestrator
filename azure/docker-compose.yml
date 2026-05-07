@@ -66,6 +66,7 @@ services:
       - APP_ENV=local
       - USE_LOCAL_EMULATORS=true
       - ORCHESTRATOR_STRICT_MODE=false
+      - ORCHESTRATOR_DEMO_STEPS=true
       - COSMOS_ENDPOINT=https://cosmos:8081/
       - COSMOS_DATABASE=utility_agent_db
       - ORCHESTRATOR_HTTP_AUTH_LEVEL=ANONYMOUS
@@ -134,9 +135,27 @@ services:
       # port to avoid intermittent Docker DNS resolution issues for "orchestrator".
       - VITE_ORCHESTRATOR_URL=http://host.docker.internal:7071
       - VITE_FUNC_CODE=
+      - VITE_DEMO_STEPS=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./chatbot:/app
+      - /app/node_modules
+
+  zero-clicks-dashboard:
+    build:
+      context: ./zero-clicks-dashboard
+      dockerfile: Dockerfile
+    container_name: zero_clicks_dashboard_ui
+    depends_on:
+      - orchestrator
+    ports:
+      - "5175:3000"
+    environment:
+      - VITE_ORCHESTRATOR_URL=http://host.docker.internal:7071
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./zero-clicks-dashboard:/app
       - /app/node_modules
 

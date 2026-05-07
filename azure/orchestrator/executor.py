@@ -257,7 +257,12 @@ async def _call_agent(
 # =============================================================================
 
 
-async def execute_plan(plan: Any, session_id: str, customer_id: str | None) -> dict:
+async def execute_plan(
+    plan: Any,
+    session_id: str,
+    customer_id: str | None,
+    trace_ctx: Any | None = None,
+) -> dict:
     import memory
 
     results: dict[int, dict] = {}
@@ -272,10 +277,34 @@ async def execute_plan(plan: Any, session_id: str, customer_id: str | None) -> d
             log.warning("Skipping step %d (%s): deps %s failed", step.step_id, step.agent_name, blocked)
             failed.add(step.step_id)
             await memory.save_step_error(session_id, step.step_id, step.agent_name, f"Skipped — deps {blocked} failed")
+            if trace_ctx:
+                await trace_ctx.record_event(
+                    stage="execution",
+                    status="skipped",
+                    message=f"Skipped step {step.step_id} ({step.agent_name}) due to failed dependencies.",
+                    metadata={"step_id": step.step_id, "agent_name": step.agent_name, "blocked_by": blocked},
+                )
+                await trace_ctx.record_step_error(step.step_id, f"Skipped — deps {blocked} failed", skipped=True)
             continue
 
         log.info("Executing step %d: %s", step.step_id, step.agent_name)
         await memory.save_step_start(session_id, step.step_id, step.agent_name, step.task)
+        if trace_ctx:
+            await trace_ctx.record_event(
+                stage="execution",
+                status="running",
+                message=f"Executing step {step.step_id} with agent {step.agent_name}.",
+                metadata={"step_id": step.step_id, "agent_name": step.agent_name},
+            )
+            body_preview = _build_body(
+                invocation_config=step.invocation_config or {},
+                task=step.task,
+                session_id=session_id,
+                customer_id=customer_id,
+                prior_outputs=prior_outputs,
+                context_note=getattr(step, "context_note", ""),
+            )
+            trace_ctx.record_step_start(step, body_preview)
 
         try:
             response = await _call_agent(step, session_id, customer_id, prior_outputs)
@@ -293,11 +322,31 @@ async def execute_plan(plan: Any, session_id: str, customer_id: str | None) -> d
                     **response.get("metadata", {}),
                 },
             )
+            if trace_ctx:
+                await trace_ctx.record_event(
+                    stage="execution",
+                    status="completed",
+                    message=f"Completed step {step.step_id} with agent {step.agent_name}.",
+                    metadata={"step_id": step.step_id, "agent_name": step.agent_name},
+                )
+                await trace_ctx.record_step_result(
+                    step_id=step.step_id,
+                    output=response,
+                    result=response["result"],
+                )
             log.info("Step %d (%s) completed", step.step_id, step.agent_name)
 
         except Exception as exc:
             log.error("Step %d (%s) failed: %s", step.step_id, step.agent_name, exc)
             failed.add(step.step_id)
             await memory.save_step_error(session_id, step.step_id, step.agent_name, str(exc))
+            if trace_ctx:
+                await trace_ctx.record_event(
+                    stage="execution",
+                    status="failed",
+                    message=f"Failed step {step.step_id} with agent {step.agent_name}.",
+                    metadata={"step_id": step.step_id, "agent_name": step.agent_name, "error": str(exc)},
+                )
+                await trace_ctx.record_step_error(step.step_id, str(exc))
 
     return results

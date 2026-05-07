@@ -6,7 +6,7 @@ import { getUserName } from '../utils/nameMapping';
 import '../styles/ChatArea.css';
 
 export default function ChatArea() {
-  const { messages, error, customerId } = useChat();
+  const { messages, error, customerId, demoEvents, demoStepsEnabled, isLoading } = useChat();
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -51,6 +51,26 @@ export default function ChatArea() {
                 );
               }
             })}
+
+            {demoStepsEnabled && (isLoading || (demoEvents || []).length > 0) && (
+              <div className="demo-steps-panel">
+                <div className="demo-steps-title">Orchestrator intermediate steps</div>
+                <div className="demo-steps-list">
+                  {(demoEvents || []).map((ev, idx) => (
+                    <div key={`${ev.timestamp || "t"}-${idx}`} className={`demo-step-item status-${ev.status || "info"}`}>
+                      <span className="demo-step-stage">{ev.stage || "stage"}</span>
+                      <span className="demo-step-message">{ev.message || "Working..."}</span>
+                    </div>
+                  ))}
+                  {(demoEvents || []).length === 0 && (
+                    <div className="demo-step-item status-running">
+                      <span className="demo-step-stage">request</span>
+                      <span className="demo-step-message">Initializing orchestration...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             
             {error && (
               <div className="message system error">

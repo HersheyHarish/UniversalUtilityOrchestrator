@@ -16,7 +16,8 @@ _ENDPOINT   = os.environ["COSMOS_ENDPOINT"]
 _DATABASE   = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
 _CONTAINER  = "traces"
 _TTL_SECS   = 2592000
-_CREDENTIAL = DefaultAzureCredential()
+_EMULATOR_KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
+_CREDENTIAL: DefaultAzureCredential | None = None
 
 _container_verified = False
 
@@ -40,7 +41,7 @@ async def _verify_container() -> None:
     if _container_verified:
         return
     try:
-        async with CosmosClient(_ENDPOINT, credential=_CREDENTIAL) as c:
+        async with _client() as c:
             await c.get_database_client(_DATABASE)\
                    .get_container_client(_CONTAINER).read()
         _container_verified = True
@@ -69,9 +70,28 @@ async def _upsert(doc: dict[str, Any]) -> None:
 
 
 async def _upsert_inner(doc: dict[str, Any]) -> None:
-    async with CosmosClient(_ENDPOINT, credential=_CREDENTIAL) as c:
+    async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
         await ctr.upsert_item(doc)
+
+
+def _client() -> CosmosClient:
+    app_env = os.environ.get("APP_ENV", "local").strip().lower()
+    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    if app_env in {"prod", "production"} and use_local:
+        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
+
+    if use_local:
+        return CosmosClient(
+            _ENDPOINT,
+            credential=_EMULATOR_KEY,
+            connection_verify=False,
+        )
+
+    global _CREDENTIAL
+    if _CREDENTIAL is None:
+        _CREDENTIAL = DefaultAzureCredential()
+    return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
 
 
 # =============================================================================
@@ -100,10 +120,16 @@ class TraceContext:
             "ttl":              _TTL_SECS,
         }
         self._step_start_times: dict[int, str] = {}
+        self._doc["demo_events"] = []
         log.info("TraceContext created for session %s", session_id)
 
     async def record_plan(self, plan: Any) -> None:
         await _verify_container()
+        await self.record_event(
+            stage="planning",
+            status="running",
+            message="Building multi-agent execution plan.",
+        )
         self._doc["plan"] = {
             "plan_id":               getattr(plan, "plan_id", ""),
             "user_intent":           getattr(plan, "user_intent", ""),
@@ -112,6 +138,33 @@ class TraceContext:
         }
         log.info("TraceContext: writing plan for session %s (%d steps)",
                  self.session_id, self._doc["plan"]["step_count"])
+        await self.record_event(
+            stage="planning",
+            status="completed",
+            message=f"Plan ready with {self._doc['plan']['step_count']} steps.",
+            metadata={"step_count": self._doc["plan"]["step_count"]},
+        )
+        await _upsert(self._doc)
+
+    async def record_event(
+        self,
+        stage: str,
+        status: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        event = {
+            "timestamp": _now(),
+            "stage": stage,
+            "status": status,
+            "message": message,
+            "metadata": metadata or {},
+        }
+        events = self._doc.setdefault("demo_events", [])
+        events.append(event)
+        # Keep document bounded for long sessions.
+        if len(events) > 200:
+            self._doc["demo_events"] = events[-200:]
         await _upsert(self._doc)
 
     def record_step_start(
@@ -236,6 +289,10 @@ class TraceContext:
             "final_response":   _truncate(final_response or ""),
             "error":            _truncate(error, 2000) if error else None,
         })
+        if error:
+            await self.record_event("synthesis", "failed", "Failed to complete response synthesis.", {"error": error})
+        else:
+            await self.record_event("synthesis", "completed", "Final response synthesized successfully.")
         log.info("TraceContext: finishing session %s status=%s latency=%dms",
                  self.session_id, self._doc["status"], self._doc["total_latency_ms"])
         await _upsert(self._doc)
@@ -312,3 +369,18 @@ def _truncate(text: str, max_chars: int = 8000) -> str:
     if len(text) > max_chars:
         return text[:max_chars] + f"\n…[{len(text) - max_chars} chars truncated]"
     return text
+
+
+async def get_demo_events(session_id: str) -> list[dict[str, Any]]:
+    """Fetch demo events for a session from the traces container."""
+    try:
+        async with _client() as c:
+            ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
+            doc = await ctr.read_item(item=session_id, partition_key=session_id)
+            events = doc.get("demo_events") or []
+            return events if isinstance(events, list) else []
+    except cosmos_exc.CosmosResourceNotFoundError:
+        return []
+    except Exception as exc:
+        log.warning("TraceContext: get_demo_events failed for %s: %s", session_id, exc)
+        return []
