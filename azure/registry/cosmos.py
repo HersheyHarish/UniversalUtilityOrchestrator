@@ -10,56 +10,34 @@ Security:
   - Single module-level credential to prevent aiohttp session leaks.
   - MSI requires "Cosmos DB Built-in Data Contributor" role on the account.
 """
-
 from __future__ import annotations
-
 import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
 
-import urllib3
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-from azure.cosmos import exceptions as cosmos_exc
 from azure.cosmos.aio import CosmosClient
+from azure.cosmos import exceptions as cosmos_exc
 from azure.identity.aio import DefaultAzureCredential
 
 log = logging.getLogger(__name__)
 
-_ENDPOINT = os.environ["COSMOS_ENDPOINT"]
-_DATABASE = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
-_AGENTS_PK = "agents"
+_ENDPOINT   = os.environ["COSMOS_ENDPOINT"]
+_DATABASE   = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
+_AGENTS_PK  = "agents"
 
 # One credential instance — reused across all calls to prevent
 # aiohttp ClientSession leaks.
-_CREDENTIAL: DefaultAzureCredential | None = None
+_CREDENTIAL = DefaultAzureCredential()
 
 
 # ── Client factory ────────────────────────────────────────────────────────────
 
-
 def _client() -> CosmosClient:
-    app_env = os.environ.get("APP_ENV", "local").strip().lower()
-    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
-    if app_env in {"prod", "production"} and use_local:
-        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
-
-    if use_local:
-        return CosmosClient(
-            _ENDPOINT,
-            credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
-            connection_verify=False,
-        )
-    global _CREDENTIAL
-    if _CREDENTIAL is None:
-        _CREDENTIAL = DefaultAzureCredential()
     return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
 
 
 # ── Generic helpers ───────────────────────────────────────────────────────────
-
 
 async def _upsert(container_name: str, doc: dict[str, Any]) -> dict[str, Any]:
     doc["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -101,7 +79,7 @@ async def _query(
     async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(container_name)
         kwargs: dict[str, Any] = {
-            "query": sql,
+            "query":      sql,
             "parameters": params or [],
         }
         if pk is not None:
@@ -110,7 +88,6 @@ async def _query(
 
 
 # ── Agents ────────────────────────────────────────────────────────────────────
-
 
 async def agent_get(agent_id: str) -> dict[str, Any] | None:
     return await _read("agents", agent_id, _AGENTS_PK)
@@ -144,7 +121,11 @@ async def agent_list(
         conditions.append("ARRAY_CONTAINS(c.tags, @tag)")
         params.append({"name": "@tag", "value": tag})
 
-    sql = "SELECT * FROM c WHERE " + " AND ".join(conditions) + " ORDER BY c.created_at DESC"
+    sql = (
+        "SELECT * FROM c WHERE "
+        + " AND ".join(conditions)
+        + " ORDER BY c.created_at DESC"
+    )
     return await _query("agents", sql, params, pk=_AGENTS_PK)
 
 
@@ -174,15 +155,6 @@ async def agent_search(q: str) -> list[dict[str, Any]]:
 async def agent_upsert(doc: dict[str, Any]) -> dict[str, Any]:
     return await _upsert("agents", doc)
 
-
-async def agent_soft_delete(agent_id: str) -> dict[str, Any] | None:
-    doc = await agent_get(agent_id)
-    if not doc:
-        return None
-    doc["status"] = "inactive"
-    doc.setdefault("metadata", {})
-    doc["metadata"]["deleted_at"] = datetime.now(timezone.utc).isoformat()
-    return await _upsert("agents", doc)
 
 
 async def agent_hard_delete(agent_id: str) -> bool:
@@ -222,7 +194,6 @@ async def agent_export_all() -> list[dict[str, Any]]:
 
 
 # ── Admin sessions ────────────────────────────────────────────────────────────
-
 
 async def session_create(doc: dict[str, Any]) -> dict[str, Any]:
     """

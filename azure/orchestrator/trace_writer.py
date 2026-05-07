@@ -46,14 +46,7 @@ async def _verify_container() -> None:
         _container_verified = True
         log.info("trace_writer: traces container verified OK")
     except cosmos_exc.CosmosResourceNotFoundError:
-        log.error(
-            "trace_writer: 'traces' container missing. Create it:\n"
-            "  az cosmosdb sql container create "
-            "--account-name <ACCOUNT> --resource-group <RG> "
-            "--database-name %s --container-name traces "
-            "--partition-key-path /partition_key --default-ttl 2592000",
-            _DATABASE,
-        )
+        log.error("trace_writer: 'traces' container missing")
     except Exception as exc:
         log.error("trace_writer: container check failed (%s: %s)", type(exc).__name__, exc)
 
@@ -73,10 +66,6 @@ async def _upsert_inner(doc: dict[str, Any]) -> None:
         ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
         await ctr.upsert_item(doc)
 
-
-# =============================================================================
-# TraceContext
-# =============================================================================
 
 class TraceContext:
 
@@ -247,10 +236,6 @@ class TraceContext:
                 return
         log.warning("TraceContext._update_step: step_id %d not found", step_id)
 
-
-# =============================================================================
-# Helpers
-# =============================================================================
 
 def _serialise_mapping(mapping_result: Any | None) -> dict | None:
     if mapping_result is None:

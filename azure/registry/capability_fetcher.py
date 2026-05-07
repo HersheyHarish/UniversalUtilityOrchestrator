@@ -18,9 +18,7 @@ Auth note:
   because the values travel only within the Azure Functions runtime and are never
   logged or persisted.
 """
-
 from __future__ import annotations
-
 import base64
 import json
 import logging
@@ -31,12 +29,12 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-_FETCH_TIMEOUT = 30.0
+_FETCH_TIMEOUT   = 30.0
 _CAPABILITY_TASK = (
     "List all your capabilities in structured JSON. "
     "Return a JSON array where each element has 'name' (snake_case identifier) "
     "and 'description' (one sentence explaining what the capability does). "
-    'Example: [{"name": "check_balance", "description": "Returns the current account balance."}]. '
+    "Example: [{\"name\": \"check_balance\", \"description\": \"Returns the current account balance.\"}]. "
     "Return ONLY the JSON array, no prose."
 )
 
@@ -45,19 +43,17 @@ _CAPABILITY_TASK = (
 # Inline auth resolver (plain values — no Key Vault)
 # =============================================================================
 
-
 class _PlainAuth:
     """Holds resolved headers and params built from plain secret values."""
-
     def __init__(self):
         self.headers: dict[str, str] = {}
-        self.params: dict[str, str] = {}
+        self.params:  dict[str, str] = {}
 
     def apply_to_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         if self.headers:
             kwargs["headers"] = {**kwargs.get("headers", {}), **self.headers}
         if self.params:
-            kwargs["params"] = {**kwargs.get("params", {}), **self.params}
+            kwargs["params"]  = {**kwargs.get("params", {}), **self.params}
         return kwargs
 
 
@@ -66,11 +62,11 @@ def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
     Resolve auth from plain values (no Key Vault round-trip).
     Used only during capability fetch — secrets are not persisted.
     """
-    result = _PlainAuth()
+    result    = _PlainAuth()
     auth_type = (auth_config or {}).get("auth_type", "none")
 
     if auth_type == "api_key":
-        value = (auth_secrets or {}).get("api_key_value", "").strip()
+        value    = (auth_secrets or {}).get("api_key_value", "").strip()
         location = auth_config.get("api_key_location", "header")
         key_name = auth_config.get("api_key_name", "x-api-key") or "x-api-key"
         if value:
@@ -104,7 +100,7 @@ def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
         entries = (auth_config or {}).get("custom_entries", [])
         secret_vals = (auth_secrets or {}).get("custom_secret_values", [])
         for i, entry in enumerate(entries):
-            key = entry.get("key", "")
+            key       = entry.get("key", "")
             inject_as = entry.get("inject_as", "header")
             # Prefer the plain value stored in the entry itself (non-sensitive custom fields)
             val = entry.get("value")
@@ -123,7 +119,6 @@ def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
 # Request body builder
 # =============================================================================
 
-
 def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
     """
     Build the capability-discovery request body using the agent's body_template.
@@ -135,10 +130,10 @@ def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
     if not template:
         # Legacy / default schema
         return {
-            "task": _CAPABILITY_TASK,
-            "session_id": "capability-fetch",
+            "task":        _CAPABILITY_TASK,
+            "session_id":  "capability-fetch",
             "customer_id": None,
-            "context": {},
+            "context":     {},
         }
 
     def _render(val: Any) -> Any:
@@ -147,9 +142,9 @@ def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
                 if token in val:
                     return val.replace(token, _CAPABILITY_TASK)
             # Replace common context tokens with empty values
-            val = val.replace("{session_id}", "capability-fetch")
+            val = val.replace("{session_id}",  "capability-fetch")
             val = val.replace("{customer_id}", "")
-            val = val.replace("{context}", "{}")
+            val = val.replace("{context}",     "{}")
             val = re.sub(r"\{step_\d+\}", "", val)
             return val
         if isinstance(val, dict):
@@ -172,7 +167,6 @@ def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
 # =============================================================================
 # Response parsers
 # =============================================================================
-
 
 def _try_json_array(text: str) -> list[dict] | None:
     """Strategy 1: response is a bare JSON array of capability objects."""
@@ -223,7 +217,8 @@ def _try_json_object(text: str) -> list[dict] | None:
         return None
 
     # Check common field names in priority order
-    for key in ("capabilities", "tools", "functions", "actions", "skills", "abilities", "methods", "endpoints"):
+    for key in ("capabilities", "tools", "functions", "actions", "skills",
+                "abilities", "methods", "endpoints"):
         if key in data and isinstance(data[key], list):
             return _normalise_list(data[key])
 
@@ -252,7 +247,8 @@ def _normalise_list(items: list) -> list[dict]:
             # Plain string — use as name with empty description
             name = _to_snake(item.strip())
             if name:
-                result.append({"name": name, "description": item.strip(), "input_schema": {}, "output_schema": {}})
+                result.append({"name": name, "description": item.strip(),
+                               "input_schema": {}, "output_schema": {}})
             continue
 
         if not isinstance(item, dict):
@@ -262,22 +258,26 @@ def _normalise_list(items: list) -> list[dict]:
         if "function" in item and isinstance(item["function"], dict):
             item = item["function"]
 
-        name = item.get("name") or item.get("function_name") or item.get("tool_name") or item.get("id") or ""
-        desc = item.get("description") or item.get("summary") or item.get("doc") or item.get("help") or ""
+        name = (
+            item.get("name") or item.get("function_name") or
+            item.get("tool_name") or item.get("id") or ""
+        )
+        desc = (
+            item.get("description") or item.get("summary") or
+            item.get("doc") or item.get("help") or ""
+        )
         if not name:
             continue
 
-        input_schema = item.get("parameters") or item.get("input_schema") or {}
-        output_schema = item.get("returns") or item.get("output_schema") or {}
+        input_schema  = item.get("parameters") or item.get("input_schema")  or {}
+        output_schema = item.get("returns")     or item.get("output_schema") or {}
 
-        result.append(
-            {
-                "name": _to_snake(str(name).strip()),
-                "description": str(desc).strip(),
-                "input_schema": input_schema if isinstance(input_schema, dict) else {},
-                "output_schema": output_schema if isinstance(output_schema, dict) else {},
-            }
-        )
+        result.append({
+            "name":          _to_snake(str(name).strip()),
+            "description":   str(desc).strip(),
+            "input_schema":  input_schema  if isinstance(input_schema, dict)  else {},
+            "output_schema": output_schema if isinstance(output_schema, dict) else {},
+        })
 
     return [c for c in result if c["name"]]
 
@@ -287,7 +287,7 @@ def _to_snake(text: str) -> str:
     text = text.lower()
     text = re.sub(r"[^a-z0-9]+", "_", text)
     text = re.sub(r"_+", "_", text).strip("_")
-    return text[:60]  # cap length
+    return text[:60]   # cap length
 
 
 def _try_extract_from_result_path(resp: dict, result_path: str) -> str | None:
@@ -337,11 +337,10 @@ def _parse_response(resp_body: Any, result_path: str) -> list[dict]:
 # Public entry point
 # =============================================================================
 
-
 async def fetch_capabilities(
-    endpoint_url: str,
-    auth_config: dict,
-    auth_secrets: dict,
+    endpoint_url:      str,
+    auth_config:       dict,
+    auth_secrets:      dict,
     invocation_config: dict,
 ) -> dict[str, Any]:
     """
@@ -376,16 +375,16 @@ async def fetch_capabilities(
     injected = _resolve_plain(auth_config, auth_secrets)
 
     # Build request body
-    body = _build_fetch_body(invocation_config)
-    method = (invocation_config or {}).get("http_method", "POST").upper()
-    ct = (invocation_config or {}).get("content_type", "application/json")
+    body     = _build_fetch_body(invocation_config)
+    method   = (invocation_config or {}).get("http_method", "POST").upper()
+    ct       = (invocation_config or {}).get("content_type", "application/json")
     extra_hd = (invocation_config or {}).get("extra_static_headers") or {}
 
     base_headers = {"Content-Type": ct, **extra_hd}
 
     request_kwargs: dict[str, Any] = {
-        "method": method,
-        "url": endpoint_url,
+        "method":  method,
+        "url":     endpoint_url,
         "headers": base_headers,
     }
     if "json" in ct.lower():
@@ -401,7 +400,8 @@ async def fetch_capabilities(
             resp = await client.request(**request_kwargs)
     except httpx.ConnectError as exc:
         raise RuntimeError(
-            f"Cannot connect to {endpoint_url}. Check that the agent is running and the URL is correct. Detail: {exc}"
+            f"Cannot connect to {endpoint_url}. "
+            f"Check that the agent is running and the URL is correct. Detail: {exc}"
         ) from exc
     except httpx.TimeoutException:
         raise RuntimeError(
@@ -414,7 +414,8 @@ async def fetch_capabilities(
     # HTTP error handling
     if resp.status_code == 401:
         raise RuntimeError(
-            "HTTP 401 Unauthorized — the agent rejected the request. Check your auth configuration and secret values."
+            f"HTTP 401 Unauthorized — the agent rejected the request. "
+            "Check your auth configuration and secret values."
         )
     if resp.status_code == 403:
         raise RuntimeError(
@@ -438,17 +439,19 @@ async def fetch_capabilities(
             f"The agent may not support capability discovery. Response: {snippet}"
         )
     if not resp.is_success:
-        raise RuntimeError(f"HTTP {resp.status_code} from {endpoint_url}: {resp.text[:300]}")
+        raise RuntimeError(
+            f"HTTP {resp.status_code} from {endpoint_url}: {resp.text[:300]}"
+        )
 
     # Parse response
     raw_text = resp.text
     try:
-        resp_body = resp.json()
+        resp_body = resp.json()["answer"]
     except Exception:
         resp_body = raw_text
 
     result_path = (invocation_config or {}).get("response_result_path", "")
-    capabilities = _parse_response(resp_body, result_path)
+    capabilities  = _parse_response(resp_body, result_path)
     strategy_used = "json_array" if capabilities else "none"
 
     if not capabilities:
@@ -461,8 +464,8 @@ async def fetch_capabilities(
         )
 
     return {
-        "capabilities": capabilities,
-        "raw_response": raw_text[:800],
-        "parse_strategy": strategy_used,
-        "warning": warning,
+        "capabilities":    capabilities,
+        "raw_response":    raw_text[:800],
+        "parse_strategy":  strategy_used,
+        "warning":         warning,
     }

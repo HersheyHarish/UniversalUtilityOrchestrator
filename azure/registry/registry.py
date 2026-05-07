@@ -9,35 +9,24 @@ Updated probe logic:
 
 get_stats() now includes by_health_check_type breakdown.
 """
-
 from __future__ import annotations
-
 import asyncio
 import logging
 import socket
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any
 from urllib.parse import urlparse
+from typing import Any
+
+import httpx
 
 import auth_config_manager
 import cosmos
-import httpx
 from models import (
-    AgentCreate,
-    AgentDoc,
-    AgentReplace,
-    AgentStatus,
-    AgentUpdate,
-    AuthConfig,
-    CapabilityAdd,
-    CapabilityIndex,
-    HealthCheckResult,
-    HealthCheckType,
-    PingAllResponse,
-    RegistryStats,
-    StatusPatch,
+    AgentCreate, AgentDoc, AgentReplace, AgentStatus, AgentUpdate,
+    AuthConfig, CapabilityAdd, CapabilityIndex, HealthCheckResult,
+    HealthCheckType, PingAllResponse, RegistryStats, StatusPatch,
 )
 
 log = logging.getLogger(__name__)
@@ -48,7 +37,6 @@ _PROBE_CONCURRENCY = 5
 # =============================================================================
 # Helpers
 # =============================================================================
-
 
 def _derive_health_url(endpoint_url: str) -> str:
     """
@@ -65,10 +53,10 @@ def _derive_health_url(endpoint_url: str) -> str:
 def _derive_tcp_host_port(endpoint_url: str, configured_port: int) -> tuple[str, int]:
     """Parse host and port from the endpoint URL for TCP checks."""
     parsed = urlparse(endpoint_url)
-    host = parsed.hostname or "localhost"
+    host   = parsed.hostname or "localhost"
     if configured_port and configured_port > 0:
         return host, configured_port
-    port = parsed.port
+    port   = parsed.port
     if not port:
         port = 443 if endpoint_url.startswith("https://") else 80
     return host, port
@@ -78,44 +66,33 @@ def _derive_tcp_host_port(endpoint_url: str, configured_port: int) -> tuple[str,
 # Probe implementations
 # =============================================================================
 
-
 async def _probe_http(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckResult:
-    health_url = hc.get("health_check_url") or _derive_health_url(agent["endpoint_url"])
-    expected = hc.get("expected_http_status") or 200
-    timeout = hc.get("http_timeout_seconds") or 10
-    start = time.monotonic()
+    health_url  = hc.get("health_check_url") or _derive_health_url(agent["endpoint_url"])
+    expected    = hc.get("expected_http_status") or 200
+    timeout     = hc.get("http_timeout_seconds") or 10
+    start       = time.monotonic()
 
     try:
         async with httpx.AsyncClient(timeout=float(timeout)) as client:
             resp = await client.get(health_url)
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        status = "healthy" if resp.status_code == expected else "unhealthy"
+        status     = "healthy" if resp.status_code == expected else "unhealthy"
         return HealthCheckResult(
-            agent_id=agent["id"],
-            agent_name=agent["name"],
-            endpoint=health_url,
-            status=status,
-            check_type="http",
-            http_code=resp.status_code,
-            response_ms=elapsed_ms,
+            agent_id=agent["id"], agent_name=agent["name"],
+            endpoint=health_url, status=status, check_type="http",
+            http_code=resp.status_code, response_ms=elapsed_ms,
         )
     except httpx.TimeoutException:
         return HealthCheckResult(
-            agent_id=agent["id"],
-            agent_name=agent["name"],
-            endpoint=health_url,
-            status="unreachable",
-            check_type="http",
+            agent_id=agent["id"], agent_name=agent["name"],
+            endpoint=health_url, status="unreachable", check_type="http",
             response_ms=int((time.monotonic() - start) * 1000),
             error="Request timed out",
         )
     except Exception as exc:
         return HealthCheckResult(
-            agent_id=agent["id"],
-            agent_name=agent["name"],
-            endpoint=health_url,
-            status="unreachable",
-            check_type="http",
+            agent_id=agent["id"], agent_name=agent["name"],
+            endpoint=health_url, status="unreachable", check_type="http",
             error=str(exc),
         )
 
@@ -125,44 +102,38 @@ async def _probe_tcp(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckRe
         agent["endpoint_url"],
         hc.get("tcp_port") or 0,
     )
-    timeout = hc.get("tcp_timeout_seconds") or 5
-    address = f"{host}:{port}"
-    start = time.monotonic()
+    timeout    = hc.get("tcp_timeout_seconds") or 5
+    address    = f"{host}:{port}"
+    start      = time.monotonic()
 
     try:
         # Run the blocking socket call in a thread pool to avoid blocking the
         # asyncio event loop
         loop = asyncio.get_event_loop()
         await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: socket.create_connection((host, port), timeout=timeout)),
+            loop.run_in_executor(
+                None,
+                lambda: socket.create_connection((host, port), timeout=timeout)
+            ),
             timeout=float(timeout) + 1,
         )
         elapsed_ms = int((time.monotonic() - start) * 1000)
         return HealthCheckResult(
-            agent_id=agent["id"],
-            agent_name=agent["name"],
-            endpoint=address,
-            status="healthy",
-            check_type="tcp",
+            agent_id=agent["id"], agent_name=agent["name"],
+            endpoint=address, status="healthy", check_type="tcp",
             response_ms=elapsed_ms,
         )
     except (socket.timeout, asyncio.TimeoutError, TimeoutError):
         return HealthCheckResult(
-            agent_id=agent["id"],
-            agent_name=agent["name"],
-            endpoint=address,
-            status="unreachable",
-            check_type="tcp",
+            agent_id=agent["id"], agent_name=agent["name"],
+            endpoint=address, status="unreachable", check_type="tcp",
             response_ms=int((time.monotonic() - start) * 1000),
             error="TCP connection timed out",
         )
     except Exception as exc:
         return HealthCheckResult(
-            agent_id=agent["id"],
-            agent_name=agent["name"],
-            endpoint=address,
-            status="unreachable",
-            check_type="tcp",
+            agent_id=agent["id"], agent_name=agent["name"],
+            endpoint=address, status="unreachable", check_type="tcp",
             error=str(exc),
         )
 
@@ -170,11 +141,8 @@ async def _probe_tcp(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckRe
 def _probe_none(agent: dict[str, Any]) -> HealthCheckResult:
     """No health check — always report healthy."""
     return HealthCheckResult(
-        agent_id=agent["id"],
-        agent_name=agent["name"],
-        endpoint=agent["endpoint_url"],
-        status="healthy",
-        check_type="none",
+        agent_id=agent["id"], agent_name=agent["name"],
+        endpoint=agent["endpoint_url"], status="healthy", check_type="none",
         response_ms=0,
     )
 
@@ -184,7 +152,7 @@ async def _probe_one(agent: dict[str, Any]) -> HealthCheckResult:
     Probe a single agent using its health_check_config.
     Falls back to HTTP if health_check_config is missing (backward compat).
     """
-    hc = agent.get("health_check_config") or {}
+    hc         = agent.get("health_check_config") or {}
     check_type = hc.get("check_type", "http")
 
     if check_type == HealthCheckType.NONE.value:
@@ -197,8 +165,8 @@ async def _probe_one(agent: dict[str, Any]) -> HealthCheckResult:
 
 async def _persist_health(agent: dict[str, Any], result: HealthCheckResult) -> None:
     agent["last_health_check_at"] = result.checked_at
-    agent["last_health_status"] = result.status
-    agent["last_health_ms"] = result.response_ms
+    agent["last_health_status"]   = result.status
+    agent["last_health_ms"]       = result.response_ms
     if result.status == "healthy" and agent["status"] == "degraded":
         agent["status"] = AgentStatus.ACTIVE.value
     elif result.status in ("unhealthy", "unreachable") and agent["status"] == "active":
@@ -209,7 +177,6 @@ async def _persist_health(agent: dict[str, Any], result: HealthCheckResult) -> N
 # =============================================================================
 # CRUD (create/patch/replace updated to carry new config fields)
 # =============================================================================
-
 
 async def create_agent(body: AgentCreate) -> tuple[AgentDoc, bool]:
     existing = await cosmos.agent_get_by_name(body.name)
@@ -222,7 +189,8 @@ async def create_agent(body: AgentCreate) -> tuple[AgentDoc, bool]:
         auth_secrets=body.auth_secrets,
     )
     doc = AgentDoc(
-        **{k: v for k, v in body.model_dump().items() if k not in ("auth_secrets", "auth_config")},
+        **{k: v for k, v in body.model_dump().items()
+           if k not in ("auth_secrets", "auth_config")},
         auth_config=resolved_auth,
     )
     saved = await cosmos.agent_upsert(doc.model_dump())
@@ -296,7 +264,8 @@ async def replace_agent(agent_id: str, body: AgentReplace) -> AgentDoc | None:
         auth_secrets=body.auth_secrets,
     )
     updated = AgentDoc(
-        **{k: v for k, v in body.model_dump().items() if k not in ("auth_secrets", "auth_config")},
+        **{k: v for k, v in body.model_dump().items()
+           if k not in ("auth_secrets", "auth_config")},
         auth_config=resolved_auth,
         id=raw["id"],
         created_at=raw.get("created_at", datetime.now(timezone.utc).isoformat()),
@@ -315,17 +284,15 @@ async def set_status(agent_id: str, body: StatusPatch) -> AgentDoc | None:
     raw["status"] = body.status.value
     if body.reason:
         raw.setdefault("metadata", {})
-        raw["metadata"]["status_reason"] = body.reason
+        raw["metadata"]["status_reason"]     = body.reason
         raw["metadata"]["status_changed_at"] = datetime.now(timezone.utc).isoformat()
     saved = await cosmos.agent_upsert(raw)
     return AgentDoc(**saved)
 
 
-async def delete_agent(agent_id: str, hard: bool = False) -> bool:
-    if hard:
-        return await cosmos.agent_hard_delete(agent_id)
-    result = await cosmos.agent_soft_delete(agent_id)
-    return result is not None
+async def delete_agent(agent_id: str) -> bool:
+    return await cosmos.agent_hard_delete(agent_id)
+   
 
 
 async def add_capability(agent_id: str, body: CapabilityAdd) -> AgentDoc | None:
@@ -354,7 +321,6 @@ async def remove_capability(agent_id: str, cap_name: str) -> AgentDoc | None:
 # Health probing (public)
 # =============================================================================
 
-
 async def ping_agent(agent_id: str) -> HealthCheckResult | None:
     raw = await cosmos.agent_get(agent_id)
     if not raw:
@@ -381,10 +347,8 @@ async def ping_all_active() -> PingAllResponse:
 
     healthy = sum(1 for r in results if r.status == "healthy")
     return PingAllResponse(
-        checked=len(results),
-        healthy=healthy,
-        degraded=len(results) - healthy,
-        results=results,
+        checked=len(results), healthy=healthy,
+        degraded=len(results) - healthy, results=results,
     )
 
 
@@ -392,9 +356,8 @@ async def ping_all_active() -> PingAllResponse:
 # Discovery & analytics
 # =============================================================================
 
-
 async def get_capability_index() -> list[CapabilityIndex]:
-    rows = await cosmos.agent_capabilities_all()
+    rows    = await cosmos.agent_capabilities_all()
     grouped: dict[str, dict] = {}
     for row in rows:
         n = row["cap_name"]
@@ -414,15 +377,15 @@ async def get_capability_index() -> list[CapabilityIndex]:
 
 
 async def get_stats() -> RegistryStats:
-    rows = await cosmos.agent_stats_raw()
-    by_status: dict[str, int] = defaultdict(int)
-    by_utype: dict[str, int] = defaultdict(int)
-    by_auth_type: dict[str, int] = defaultdict(int)
-    by_hc_type: dict[str, int] = defaultdict(int)
-    all_tags: set[str] = set()
-    total_caps = 0
-    last_reg: str | None = None
-    last_health: str | None = None
+    rows           = await cosmos.agent_stats_raw()
+    by_status:     dict[str, int] = defaultdict(int)
+    by_utype:      dict[str, int] = defaultdict(int)
+    by_auth_type:  dict[str, int] = defaultdict(int)
+    by_hc_type:    dict[str, int] = defaultdict(int)
+    all_tags:      set[str]       = set()
+    total_caps     = 0
+    last_reg:      str | None     = None
+    last_health:   str | None     = None
 
     for row in rows:
         by_status[row["status"]] += 1
@@ -435,13 +398,13 @@ async def get_stats() -> RegistryStats:
 
         total_caps += len(row.get("capabilities", []))
 
-        auth_cfg = row.get("auth_config") or {}
+        auth_cfg  = row.get("auth_config") or {}
         auth_type = auth_cfg.get("auth_type", "none")
         if auth_type == "none" and row.get("api_key_secret_name"):
             auth_type = "api_key (legacy)"
         by_auth_type[auth_type] += 1
 
-        hc_cfg = row.get("health_check_config") or {}
+        hc_cfg  = row.get("health_check_config") or {}
         hc_type = hc_cfg.get("check_type", "http")
         by_hc_type[hc_type] += 1
 
@@ -465,38 +428,36 @@ async def get_stats() -> RegistryStats:
 
 def build_dashboard_html(agents: list[dict[str, Any]], stats: RegistryStats) -> str:
     STATUS_COLORS = {
-        "active": ("#d4edda", "#155724"),
+        "active":   ("#d4edda", "#155724"),
         "inactive": ("#f8d7da", "#721c24"),
         "degraded": ("#fff3cd", "#856404"),
     }
     AUTH_COLORS = {
-        "none": ("#e9ecef", "#495057"),
-        "api_key": ("#e0e7ff", "#3730a3"),
+        "none":         ("#e9ecef", "#495057"),
+        "api_key":      ("#e0e7ff", "#3730a3"),
         "bearer_token": ("#dcfce7", "#15803d"),
-        "basic_auth": ("#fef3c7", "#92400e"),
-        "oauth2": ("#ede9fe", "#5b21b6"),
-        "custom": ("#fce7f3", "#9d174d"),
+        "basic_auth":   ("#fef3c7", "#92400e"),
+        "oauth2":       ("#ede9fe", "#5b21b6"),
+        "custom":       ("#fce7f3", "#9d174d"),
     }
     HC_COLORS = {
         "http": ("#e0f2fe", "#0369a1"),
-        "tcp": ("#fef9c3", "#854d0e"),
+        "tcp":  ("#fef9c3", "#854d0e"),
         "none": ("#f1f5f9", "#334155"),
     }
 
     def badge(val: str, m: dict) -> str:
         bg, fg = m.get(val, ("#e9ecef", "#495057"))
-        return (
-            f'<span style="background:{bg};color:{fg};padding:2px 6px;'
-            f'border-radius:10px;font-size:10px;font-weight:500">{val}</span>'
-        )
+        return (f'<span style="background:{bg};color:{fg};padding:2px 6px;'
+                f'border-radius:10px;font-size:10px;font-weight:500">{val}</span>')
 
     rows = ""
     for a in agents:
-        caps = ", ".join(c["name"] for c in a.get("capabilities", []))
-        auth_t = (a.get("auth_config") or {}).get("auth_type", "none")
-        hc_t = (a.get("health_check_config") or {}).get("check_type", "http")
+        caps    = ", ".join(c["name"] for c in a.get("capabilities", []))
+        auth_t  = (a.get("auth_config") or {}).get("auth_type", "none")
+        hc_t    = (a.get("health_check_config") or {}).get("check_type", "http")
         inv_tpl = (a.get("invocation_config") or {}).get("body_template") or {}
-        ms_str = f"{a['last_health_ms']} ms" if a.get("last_health_ms") else "—"
+        ms_str  = f"{a['last_health_ms']} ms" if a.get("last_health_ms") else "—"
         rows += f"""<tr>
           <td><strong>{a["name"]}</strong><br><small style="color:#6c757d">{a["id"][:8]}…</small></td>
           <td>{badge(a["status"], STATUS_COLORS)}</td>
@@ -505,7 +466,7 @@ def build_dashboard_html(agents: list[dict[str, Any]], stats: RegistryStats) -> 
           <td style="font-size:11px">{", ".join(inv_tpl.keys()) if inv_tpl else "default"}</td>
           <td style="font-size:11px">{caps[:40] or "—"}</td>
           <td style="font-size:12px">{ms_str}</td>
-          <td style="font-size:11px;color:#6c757d">{a.get("updated_at", "")[:10]}</td>
+          <td style="font-size:11px;color:#6c757d">{a.get("updated_at","")[:10]}</td>
         </tr>"""
 
     return f"""<!DOCTYPE html>
@@ -526,9 +487,9 @@ tr:hover{{background:#f8f9fa}}
 </style></head><body>
 <h1>Agent Registry</h1>
 <p>{len(agents)} agents · refreshes every 60 s</p>
-<div class="bar"><strong>Status:</strong> {"".join(f"&nbsp;<strong>{k}</strong>:{v}" for k, v in stats.by_status.items())}
-&emsp;<strong>Auth:</strong> {"".join(f"&nbsp;<strong>{k}</strong>:{v}" for k, v in stats.by_auth_type.items())}
-&emsp;<strong>Health check:</strong> {"".join(f"&nbsp;<strong>{k}</strong>:{v}" for k, v in stats.by_health_check_type.items())}
+<div class="bar"><strong>Status:</strong> {''.join(f'&nbsp;<strong>{k}</strong>:{v}' for k,v in stats.by_status.items())}
+&emsp;<strong>Auth:</strong> {''.join(f'&nbsp;<strong>{k}</strong>:{v}' for k,v in stats.by_auth_type.items())}
+&emsp;<strong>Health check:</strong> {''.join(f'&nbsp;<strong>{k}</strong>:{v}' for k,v in stats.by_health_check_type.items())}
 </div>
 <table><thead><tr>
   <th>Name</th><th>Status</th><th>Auth</th><th>HC type</th>

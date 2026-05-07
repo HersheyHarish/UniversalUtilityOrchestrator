@@ -7,6 +7,8 @@ import Dashboard     from "./components/Dashboard.jsx";
 import AgentList     from "./components/AgentList.jsx";
 import AgentDetail   from "./components/AgentDetail.jsx";
 import HealthMonitor from "./components/HealthMonitor.jsx";
+import ProactiveNotifications from "./components/ProactiveNotifications.jsx";
+
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -38,6 +40,7 @@ function AppRoutes() {
         <Route path="agents"     element={<AgentList />} />
         <Route path="agents/:id" element={<AgentDetail />} />
         <Route path="health"     element={<HealthMonitor />} />
+        <Route path="proactive" element={<ProactiveNotifications />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

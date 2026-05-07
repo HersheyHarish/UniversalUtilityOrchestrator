@@ -7,6 +7,7 @@ const NAV = [
   { path: "/dashboard", label: "Dashboard", Icon: IcDashboard },
   { path: "/agents", label: "Agents", Icon: IcAgents },
   { path: "/health", label: "Health monitor", Icon: IcHealth },
+  { path: "/proactive", label: "Notifications", Icon: IcBell }
 ];
 
 export default function Layout() {

@@ -1,6 +1,5 @@
 """
-auth_config_manager.py — Stores agent auth secrets in Key Vault (cloud) or
-inline references (local emulator mode).
+auth_config_manager.py — Stores agent auth secrets in Key Vault.
 
 Called by registry.py when an agent is created or updated with auth_secrets.
 
@@ -23,26 +22,23 @@ This is deterministic: re-saving an agent overwrites the same secret (idempotent
 
 Key Vault limits: secret names 1-127 chars, alphanumeric and hyphens only.
 """
-
 from __future__ import annotations
-
 import logging
 import os
 import re
 
 from azure.identity.aio import DefaultAzureCredential
 from azure.keyvault.secrets.aio import SecretClient
+
 from models import AuthConfig, AuthSecrets, AuthType
-from secret_refs import is_local_mode, is_prod_env, to_inline_secret_ref
 
 log = logging.getLogger(__name__)
 
-_KV_URL = os.environ.get("KEY_VAULT_URL", "")
-_CREDENTIAL: DefaultAzureCredential | None = None
+_KV_URL     = os.environ.get("KEY_VAULT_URL", "")
+_CREDENTIAL = DefaultAzureCredential()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
 
 def _slug(name: str) -> str:
     """Convert an agent name to a safe KV secret name segment (max 24 chars)."""
@@ -52,36 +48,21 @@ def _slug(name: str) -> str:
     return s[:24]
 
 
-async def _set_secret(secret_name: str, value: str) -> str:
-    """
-    Persist a secret and return the reference that should be saved.
-
-    Cloud mode:
-      Stores in Key Vault, returns the Key Vault secret name.
-    Local mode:
-      Stores an inline reference, returns inline:<base64>.
-    """
-    if is_local_mode():
-        if is_prod_env():
-            raise RuntimeError("inline secret references are forbidden when APP_ENV=prod")
-        return to_inline_secret_ref(value)
-
+async def _set_secret(secret_name: str, value: str) -> None:
+    """Write a secret to Key Vault. Overwrites if it already exists."""
     if not _KV_URL:
-        raise RuntimeError("KEY_VAULT_URL is not configured — cannot store auth secrets.")
-    global _CREDENTIAL
-    if _CREDENTIAL is None:
-        _CREDENTIAL = DefaultAzureCredential()
+        raise RuntimeError(
+            "KEY_VAULT_URL is not configured — cannot store auth secrets."
+        )
     async with SecretClient(_KV_URL, _CREDENTIAL) as kv:
         await kv.set_secret(secret_name, value)
     log.info("Stored secret in Key Vault: %s", secret_name)
-    return secret_name
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-
 async def process_and_store(
-    agent_name: str,
+    agent_name:  str,
     auth_config: AuthConfig,
     auth_secrets: AuthSecrets | None,
 ) -> AuthConfig:
@@ -95,31 +76,33 @@ async def process_and_store(
     if not auth_secrets:
         return auth_config
 
-    slug = _slug(agent_name)
-    updated_cfg = auth_config.model_copy(deep=True)
-    auth_type = auth_config.auth_type
+    slug         = _slug(agent_name)
+    updated_cfg  = auth_config.model_copy(deep=True)
+    auth_type    = auth_config.auth_type
 
     # ── API Key ────────────────────────────────────────────────────────────────
     if auth_type == AuthType.API_KEY and auth_secrets.api_key_value:
         secret_name = f"agent-{slug}-apikey"
-        updated_cfg.api_key_secret_name = await _set_secret(secret_name, auth_secrets.api_key_value)
+        await _set_secret(secret_name, auth_secrets.api_key_value)
+        updated_cfg.api_key_secret_name = secret_name
 
     # ── Bearer Token ──────────────────────────────────────────────────────────
     elif auth_type == AuthType.BEARER_TOKEN and auth_secrets.bearer_token_value:
         secret_name = f"agent-{slug}-bearertoken"
-        updated_cfg.bearer_token_secret_name = await _set_secret(secret_name, auth_secrets.bearer_token_value)
+        await _set_secret(secret_name, auth_secrets.bearer_token_value)
+        updated_cfg.bearer_token_secret_name = secret_name
 
     # ── Basic Auth ────────────────────────────────────────────────────────────
     elif auth_type == AuthType.BASIC_AUTH and auth_secrets.basic_auth_password_value:
         secret_name = f"agent-{slug}-basicpassword"
-        updated_cfg.basic_auth_password_secret_name = await _set_secret(
-            secret_name, auth_secrets.basic_auth_password_value
-        )
+        await _set_secret(secret_name, auth_secrets.basic_auth_password_value)
+        updated_cfg.basic_auth_password_secret_name = secret_name
 
     # ── OAuth2 ────────────────────────────────────────────────────────────────
     elif auth_type == AuthType.OAUTH2 and auth_secrets.oauth2_client_secret_value:
         secret_name = f"agent-{slug}-oauth2secret"
-        updated_cfg.oauth2_client_secret_name = await _set_secret(secret_name, auth_secrets.oauth2_client_secret_value)
+        await _set_secret(secret_name, auth_secrets.oauth2_client_secret_value)
+        updated_cfg.oauth2_client_secret_name = secret_name
 
     # ── Custom ────────────────────────────────────────────────────────────────
     elif auth_type == AuthType.CUSTOM:
@@ -129,14 +112,12 @@ async def process_and_store(
         for i, entry in enumerate(updated_entries):
             if i < len(custom_vals) and custom_vals[i]:
                 secret_name = f"agent-{slug}-custom-{i}"
-                stored_ref = await _set_secret(secret_name, custom_vals[i])
+                await _set_secret(secret_name, custom_vals[i])
                 # Mark this entry as KV-backed, clear any plain value
-                updated_entries[i] = entry.model_copy(
-                    update={
-                        "secret_name": stored_ref,
-                        "value": None,
-                    }
-                )
+                updated_entries[i] = entry.model_copy(update={
+                    "secret_name": secret_name,
+                    "value":       None,
+                })
 
         updated_cfg.custom_entries = updated_entries
 

@@ -25,44 +25,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from openai import AsyncOpenAI
+from models import FieldDecision, MappingResult
 
 log = logging.getLogger(__name__)
 
 _OAI_ENDPOINT   = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-
-# Cached per cold-start (key fetched by planner's _get_secret helper)
-_openai_client: AsyncOpenAI | None = None
-
-
-# =============================================================================
-# Data classes
-# =============================================================================
-
-@dataclass
-class FieldDecision:
-    """Records what the mapper decided for a single field."""
-    field_name:  str
-    included:    bool
-    value:       Any              = None
-    reason:      str              = ""
-    confidence:  float            = 1.0    # 0.0 – 1.0
-    inferred:    bool             = False  # True = LLM had to infer, no direct context
-
-
-@dataclass
-class MappingResult:
-    """Full output of one schema_mapper.build() call."""
-    body:              dict[str, Any]
-    decisions:         list[FieldDecision]  = field(default_factory=list)
-    warnings:          list[str]            = field(default_factory=list)
-    errors:            list[str]            = field(default_factory=list)
-    llm_tokens_used:   int                  = 0
-    mapping_latency_ms:int                  = 0
-    retry_count:       int                  = 0
-    fields_included:   list[str]            = field(default_factory=list)
-    fields_skipped:    list[str]            = field(default_factory=list)
-
 
 class SchemaMapError(Exception):
     """Raised when a required field cannot be populated."""
@@ -74,10 +42,6 @@ class SchemaMapError(Exception):
 # =============================================================================
 
 async def _get_client() -> AsyncOpenAI:
-    global _openai_client
-    if _openai_client:
-        return _openai_client
-    # Re-use the Key Vault helper from planner.py
     from planner import _get_secret
     api_key = await _get_secret(os.environ.get("OPENAI_SECRET_NAME", "openai-api-key"))
     _openai_client = AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key)
@@ -133,7 +97,6 @@ Construct the request body JSON object now."""
 
 
 def _fields_to_prompt_dicts(schema_fields: list) -> list[dict]:
-    """Convert RequestSchemaField objects to plain dicts for the prompt."""
     result = []
     for f in schema_fields:
         d: dict[str, Any] = {
@@ -148,11 +111,6 @@ def _fields_to_prompt_dicts(schema_fields: list) -> list[dict]:
             d["nested_fields"] = _fields_to_prompt_dicts(f.nested_fields)
         result.append(d)
     return result
-
-
-# =============================================================================
-# Validation and post-processing
-# =============================================================================
 
 def _validate_and_clean(
     raw: dict[str, Any],
@@ -237,23 +195,14 @@ def _validate_and_clean(
         try:
             import jsonschema
             jsonschema.validate(instance=cleaned, schema=json_schema)
-        except ImportError:
-            warnings.append(
-                "jsonschema package not installed — skipping JSON Schema validation. "
-                "Add jsonschema to requirements.txt."
-            )
         except Exception as exc:
             warnings.append(f"JSON Schema validation warning: {exc}")
 
     return cleaned, decisions, warnings
 
 
-# =============================================================================
-# Main entry point
-# =============================================================================
-
 async def build(
-    schema_fields:    list,           # list[RequestSchemaField]
+    schema_fields:    list,
     strict:           bool,
     json_schema:      dict | None,
     task:             str,
@@ -262,30 +211,11 @@ async def build(
     prior_outputs:    dict[int, str],
     context_note:     str,
 ) -> MappingResult:
-    """
-    Build the request body for one agent invocation using the schema fields.
-
-    Args:
-        schema_fields  — list of RequestSchemaField (from InvocationConfig.request_schema)
-        strict         — strip extra fields from LLM output
-        json_schema    — optional JSON Schema for additional post-validation
-        task           — planner-assigned task string
-        session_id     — orchestrator session
-        customer_id    — customer context
-        prior_outputs  — dict[step_id → result_text] from earlier steps
-        context_note   — optional planner note
-
-    Returns:
-        MappingResult with .body (the dict to POST) and .decisions for tracing
-
-    Raises:
-        SchemaMapError — if a required field is missing and has no default
-    """
     t_start = time.monotonic()
     result  = MappingResult(body={})
 
     if not schema_fields:
-        return result   # no schema — caller falls back to body_template or defaults
+        return result
 
     # Build context dict
     context: dict[str, Any] = {
@@ -320,13 +250,13 @@ async def build(
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user",   "content": user_msg},
                 ],
-                temperature=0.0,   # deterministic — never hallucinate
+                temperature=0.0,
                 max_tokens=1000,
             )
             tokens_used += response.usage.total_tokens if response.usage else 0
             raw_text    = response.choices[0].message.content or "{}"
             raw_body    = json.loads(raw_text)
-            break   # success
+            break
 
         except json.JSONDecodeError as exc:
             if attempt == 0:

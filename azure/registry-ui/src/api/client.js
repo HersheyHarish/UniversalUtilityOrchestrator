@@ -6,8 +6,8 @@
  */
 
 const runtimeConfig = window.__UUA_RUNTIME_CONFIG__ || {};
-const BASE      = runtimeConfig.VITE_REGISTRY_URL || import.meta.env.VITE_REGISTRY_URL || "";
-const FUNC_CODE = runtimeConfig.VITE_FUNC_CODE    || import.meta.env.VITE_FUNC_CODE    || "";
+const BASE = runtimeConfig.VITE_REGISTRY_URL || import.meta.env.VITE_REGISTRY_URL || "";
+const FUNC_CODE = runtimeConfig.VITE_FUNC_CODE || import.meta.env.VITE_FUNC_CODE || "";
 
 function token() {
   return sessionStorage.getItem("session_token") || "";
@@ -43,9 +43,9 @@ async function req(method, path, { body, params } = {}) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  const ct   = res.headers.get("content-type") || "";
+  const ct = res.headers.get("content-type") || "";
   const data = ct.includes("application/json") ? await res.json() : await res.text();
-  const msg  = messageFrom(data, `HTTP ${res.status}`);
+  const msg = messageFrom(data, `HTTP ${res.status}`);
 
   if (res.status === 401 && isSessionAuthFailure(path, msg)) {
     sessionStorage.clear();
@@ -61,7 +61,7 @@ async function req(method, path, { body, params } = {}) {
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 export const auth = {
-  login:  (username, password) =>
+  login: (username, password) =>
     req("POST", "/api/auth/login", { body: { username, password } }),
   logout: () =>
     req("POST", "/api/auth/logout"),
@@ -71,22 +71,22 @@ export const auth = {
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 export const agents = {
-  list:   (p = {}) => req("GET",  "/api/agents",              { params: p }),
-  get:    (id)     => req("GET",  `/api/agents/${id}`),
-  create: (body)   => req("POST", "/api/agents",              { body }),
-  replace:(id, b)  => req("PUT",  `/api/agents/${id}`,        { body: b }),
-  patch:  (id, b)  => req("PATCH",`/api/agents/${id}`,        { body: b }),
+  list: (p = {}) => req("GET", "/api/agents", { params: p }),
+  get: (id) => req("GET", `/api/agents/${id}`),
+  create: (body) => req("POST", "/api/agents", { body }),
+  replace: (id, b) => req("PUT", `/api/agents/${id}`, { body: b }),
+  patch: (id, b) => req("PATCH", `/api/agents/${id}`, { body: b }),
   delete: (id, hard = false) =>
     req("DELETE", `/api/agents/${id}`, { params: hard ? { hard: "true" } : {} }),
 
   setStatus: (id, status, reason) =>
     req("PATCH", `/api/agents/${id}/status`, { body: { status, reason } }),
 
-  ping:    (id) => req("GET",  `/api/agents/${id}/ping`),
-  pingAll: ()   => req("POST", "/api/agents/ping-all"),
+  ping: (id) => req("GET", `/api/agents/${id}/ping`),
+  pingAll: () => req("POST", "/api/agents/ping-all"),
 
-  addCapability:    (id, cap)  => req("POST",   `/api/agents/${id}/capabilities`,      { body: cap }),
-  removeCapability: (id, name) => req("DELETE",  `/api/agents/${id}/capabilities/${encodeURIComponent(name)}`),
+  addCapability: (id, cap) => req("POST", `/api/agents/${id}/capabilities`, { body: cap }),
+  removeCapability: (id, name) => req("DELETE", `/api/agents/${id}/capabilities/${encodeURIComponent(name)}`),
 
   /**
    * Auto-fetch capabilities from a remote agent.
@@ -109,9 +109,9 @@ export const agents = {
   fetchCapabilities: (endpointUrl, authConfig, authSecrets, invocationConfig) =>
     req("POST", "/api/agents/capabilities/fetch", {
       body: {
-        endpoint_url:      endpointUrl,
-        auth_config:       authConfig,
-        auth_secrets:      authSecrets,
+        endpoint_url: endpointUrl,
+        auth_config: authConfig,
+        auth_secrets: authSecrets,
         invocation_config: invocationConfig,
       },
     }),
@@ -119,19 +119,44 @@ export const agents = {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 export const registry = {
-  stats:        () => req("GET", "/api/agents/stats"),
+  stats: () => req("GET", "/api/agents/stats"),
   capabilities: () => req("GET", "/api/agents/capabilities"),
 
   export: async () => {
     const headers = { "Content-Type": "application/json" };
     const t = token();
     if (t) headers["X-Session-Token"] = t;
-    const res  = await fetch(url("/api/agents/export"), { headers });
+    const res = await fetch(url("/api/agents/export"), { headers });
     const blob = await res.blob();
     const link = document.createElement("a");
-    link.href     = URL.createObjectURL(blob);
+    link.href = URL.createObjectURL(blob);
     link.download = "registry-export.json";
     link.click();
     URL.revokeObjectURL(link.href);
   },
+};
+
+export const traces = {
+  list: (params = {}) =>
+    req("GET", "/api/traces", { params }),
+
+  get: (id) =>
+    req("GET", `/api/traces/${id}`),
+};
+
+export const observability = {
+  metrics: (since_hours = 24) =>
+    req("GET", "/api/observability/metrics", { params: { since_hours } }),
+
+  agentMetrics: (since_hours = 24) =>
+    req("GET", "/api/observability/agents", { params: { since_hours } }),
+
+  timeseries: (since_hours = 24, bucket_hours = 1) =>
+    req("GET", "/api/observability/timeseries", { params: { since_hours, bucket_hours } }),
+};
+
+
+export const ProactiveMessages = {
+  fetch: (customerId, since, limit) =>
+    req("GET", `/api/proactive/messages/${customerId}`, { params: { since, limit } }),
 };
