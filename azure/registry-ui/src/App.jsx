@@ -7,6 +7,9 @@ import Dashboard     from "./components/Dashboard.jsx";
 import AgentList     from "./components/AgentList.jsx";
 import AgentDetail   from "./components/AgentDetail.jsx";
 import HealthMonitor from "./components/HealthMonitor.jsx";
+import MetricsDashboard from "./components/MetricsDashboard.jsx";
+import TraceExplorer from "./components/TraceExplorer.jsx";
+import TraceDetail from "./components/TraceDetail.jsx";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -37,6 +40,9 @@ function AppRoutes() {
         <Route path="dashboard"  element={<Dashboard />} />
         <Route path="agents"     element={<AgentList />} />
         <Route path="agents/:id" element={<AgentDetail />} />
+        <Route path="metrics"    element={<MetricsDashboard />} />
+        <Route path="traces"     element={<TraceExplorer />} />
+        <Route path="traces/:id" element={<TraceDetail />} />
         <Route path="health"     element={<HealthMonitor />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

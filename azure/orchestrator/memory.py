@@ -150,6 +150,26 @@ async def get_sessions_by_customer(customer_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+async def set_dashboard_alert_state(
+    session_id: str,
+    alert_id: str,
+    status: str,
+    action: str | None = None,
+) -> None:
+    """Persist dashboard alert acknowledgement state on the session doc."""
+    session = await _read("sessions", session_id, session_id)
+    if not session:
+        return
+    state = session.get("dashboard_alert_states") or {}
+    alert_state = state.get(alert_id) or {}
+    alert_state["status"] = status
+    if action:
+        alert_state["action"] = action
+    state[alert_id] = alert_state
+    session["dashboard_alert_states"] = state
+    await _upsert("sessions", session)
+
+
 # ── Message operations ────────────────────────────────────────────────────────
 
 

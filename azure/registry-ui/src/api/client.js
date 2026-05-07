@@ -142,7 +142,14 @@ export const agents = {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 export const registry = {
-  stats:        () => req("GET", "/api/agents/stats"),
+  stats: async () => {
+    try {
+      return await req("GET", "/api/registry/stats");
+    } catch (_err) {
+      // Backward-compat fallback for older backends.
+      return req("GET", "/api/agents/stats");
+    }
+  },
   capabilities: () => req("GET", "/api/agents/capabilities"),
 
   export: async () => {
@@ -157,4 +164,16 @@ export const registry = {
     link.click();
     URL.revokeObjectURL(link.href);
   },
+};
+
+// ── Observability / traces ────────────────────────────────────────────────────
+export const observability = {
+  metrics:      (sinceHours = 24)                => req("GET", "/api/observability/metrics",        { params: { since_hours: sinceHours } }),
+  agentMetrics: (sinceHours = 24)                => req("GET", "/api/observability/agent-metrics",  { params: { since_hours: sinceHours } }),
+  timeseries:   (sinceHours = 24, bucketHours=1) => req("GET", "/api/observability/timeseries",     { params: { since_hours: sinceHours, bucket_hours: bucketHours } }),
+};
+
+export const traces = {
+  list: (p = {}) => req("GET", "/api/traces", { params: p }),
+  get:  (id)     => req("GET", `/api/traces/${id}`),
 };

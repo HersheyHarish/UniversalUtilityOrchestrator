@@ -23,6 +23,8 @@ CONTAINERS = [
     {"id": "admin_sessions", "partition_key": "/partition_key", "ttl": True},
     {"id": "sessions", "partition_key": "/session_id"},
     {"id": "messages", "partition_key": "/session_id"},
+    # Observability store: one trace document per session, partitioned by partition_key=session_id.
+    {"id": "traces", "partition_key": "/partition_key", "ttl": True},
 ]
 
 MAX_RETRIES = 10

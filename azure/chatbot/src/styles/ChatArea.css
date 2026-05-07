@@ -122,3 +122,62 @@
   border-radius: 4px;
   font-size: 0.75rem;
 }
+
+.demo-steps-panel {
+  align-self: stretch;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+}
+
+.demo-steps-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.demo-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-step-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+}
+
+.demo-step-stage {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  min-width: 80px;
+}
+
+.demo-step-message {
+  color: var(--text-primary);
+}
+
+.status-completed {
+  border-left: 3px solid #34d399;
+}
+
+.status-failed {
+  border-left: 3px solid #f87171;
+}
+
+.status-running {
+  border-left: 3px solid #60a5fa;
+}
+
+.status-skipped {
+  border-left: 3px solid #fbbf24;
+}

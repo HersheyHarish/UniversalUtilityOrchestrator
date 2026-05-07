@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { api } from "../api/client";
 
 const ChatContext = createContext();
+const DEMO_STEPS_ENABLED = String(import.meta.env.VITE_DEMO_STEPS || "").toLowerCase() === "true";
+const POLL_INTERVAL_MS = 1200;
 
 export function ChatProvider({ children }) {
   // Keep demo customer id aligned with backend demo data (CUST-1001 / CUST-1002).
@@ -24,6 +26,7 @@ export function ChatProvider({ children }) {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [demoEvents, setDemoEvents] = useState([]);
 
   // Fetch all sessions for this customer on mount
   useEffect(() => {
@@ -42,6 +45,7 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
+      setDemoEvents([]);
       return;
     }
 
@@ -74,6 +78,9 @@ export function ChatProvider({ children }) {
         }
 
         setMessages(history);
+        if (DEMO_STEPS_ENABLED) {
+          setDemoEvents(Array.isArray(data.demo_events) ? data.demo_events : []);
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -86,8 +93,11 @@ export function ChatProvider({ children }) {
   const startNewChat = () => {
     setActiveSessionId(null);
     setMessages([]);
+    setDemoEvents([]);
     setError(null);
   };
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const sendMessage = async (text) => {
     // Optimistic UI update
@@ -95,8 +105,41 @@ export function ChatProvider({ children }) {
     setMessages(prev => [...prev, newMsg]);
     setIsLoading(true);
     setError(null);
+    if (DEMO_STEPS_ENABLED) setDemoEvents([]);
 
+    const priorIds = new Set((sessions || []).map((s) => s.id));
+    let observedSessionId = activeSessionId || null;
+    const pollingControl = { done: false };
+    let pollPromise = Promise.resolve();
     try {
+
+      if (DEMO_STEPS_ENABLED) {
+        pollPromise = (async () => {
+          while (!pollingControl.done) {
+            try {
+              if (!observedSessionId) {
+                const sessionData = await api.get(`/api/users/${encodeURIComponent(customerId)}/sessions`);
+                const listed = sessionData.sessions || [];
+                setSessions(listed);
+                const newlyCreated = listed.find((s) => !priorIds.has(s.id));
+                if (newlyCreated?.id) {
+                  observedSessionId = newlyCreated.id;
+                  setActiveSessionId((prev) => prev || newlyCreated.id);
+                }
+              }
+
+              if (observedSessionId) {
+                const detail = await api.get(`/api/sessions/${observedSessionId}`);
+                setDemoEvents(Array.isArray(detail.demo_events) ? detail.demo_events : []);
+              }
+            } catch (_pollErr) {
+              // Poll failures should not interrupt normal chat flow.
+            }
+            await sleep(POLL_INTERVAL_MS);
+          }
+        })();
+      }
+
       const data = await api.post('/api/chat', {
         message: text,
         customer_id: customerId,
@@ -112,10 +155,19 @@ export function ChatProvider({ children }) {
       setSessions(sessionData.sessions || []);
 
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+      pollingControl.done = true;
+      await pollPromise;
+      const detail = await api.get(`/api/sessions/${data.session_id || observedSessionId || activeSessionId}`);
+      if (DEMO_STEPS_ENABLED) {
+        setDemoEvents(Array.isArray(detail.demo_events) ? detail.demo_events : []);
+      }
     } catch (err) {
+      pollingControl.done = true;
+      await pollPromise;
       setError(err.message);
       setMessages(prev => [...prev, { role: 'system', isError: true, content: `Error: ${err.message}` }]);
     } finally {
+      pollingControl.done = true;
       setIsLoading(false);
     }
   };
@@ -128,6 +180,8 @@ export function ChatProvider({ children }) {
         activeSessionId,
         setActiveSessionId,
         messages,
+        demoEvents,
+        demoStepsEnabled: DEMO_STEPS_ENABLED,
         isLoading,
         error,
         startNewChat,

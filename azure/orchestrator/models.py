@@ -151,3 +151,50 @@ class ChatResponse(BaseModel):
     plan_id: str | None = None
     agents_used: list[str] = Field(default_factory=list)
     steps_completed: int = 0
+
+
+# ── Zero-click dashboard contracts ────────────────────────────────────────────
+
+
+class InsightCTA(BaseModel):
+    label: str
+    action: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class InsightItem(BaseModel):
+    id: str
+    type: str
+    severity: str
+    title: str
+    summary: str
+    evidence: list[str] = Field(default_factory=list)
+    cta: InsightCTA | None = None
+    session_id: str
+    created_at: str
+
+
+class CopilotContext(BaseModel):
+    target: str
+    explanation: str
+    confidence: float
+    drivers: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    related_programs: list[str] = Field(default_factory=list)
+
+
+class AlertAction(BaseModel):
+    label: str
+    action: str
+
+
+class AlertItem(BaseModel):
+    id: str
+    channel: str
+    title: str
+    body: str
+    severity: str
+    status: str
+    actions: list[AlertAction] = Field(default_factory=list)
+    triggered_at: str
+    session_id: str

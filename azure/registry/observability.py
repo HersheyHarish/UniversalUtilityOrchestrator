@@ -2,7 +2,8 @@
 observability.py — Trace queries and metrics aggregation for the registry API.
 
 Reads from the `traces` Cosmos container written by the orchestrator's trace_writer.
-All queries are cross-partition (traces partitioned by session_id).
+Trace docs use `id=session_id` and `partition_key=session_id`, with container PK path `/partition_key`.
+All list/metrics queries are cross-partition.
 """
 from __future__ import annotations
 import logging
@@ -11,6 +12,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from azure.cosmos import exceptions as cosmos_exc
 from azure.cosmos.aio import CosmosClient
 from azure.identity.aio import DefaultAzureCredential
 
@@ -19,15 +21,48 @@ log = logging.getLogger(__name__)
 _ENDPOINT   = os.environ["COSMOS_ENDPOINT"]
 _DATABASE   = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
 _CONTAINER  = "traces"
-_CREDENTIAL = DefaultAzureCredential()
+_EMULATOR_KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
+_CREDENTIAL: DefaultAzureCredential | None = None
+_CONTAINER_VERIFIED = False
 
 
 def _client() -> CosmosClient:
+    app_env = os.environ.get("APP_ENV", "local").strip().lower()
+    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    if app_env in {"prod", "production"} and use_local:
+        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
+
+    if use_local:
+        return CosmosClient(
+            _ENDPOINT,
+            credential=_EMULATOR_KEY,
+            connection_verify=False,
+        )
+
+    global _CREDENTIAL
+    if _CREDENTIAL is None:
+        _CREDENTIAL = DefaultAzureCredential()
     return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
+
+
+async def _ensure_container() -> None:
+    global _CONTAINER_VERIFIED
+    if _CONTAINER_VERIFIED:
+        return
+    try:
+        async with _client() as c:
+            await c.get_database_client(_DATABASE).get_container_client(_CONTAINER).read()
+        _CONTAINER_VERIFIED = True
+    except cosmos_exc.CosmosResourceNotFoundError as exc:
+        raise RuntimeError(
+            f"Cosmos container '{_CONTAINER}' was not found in database '{_DATABASE}'. "
+            "In local emulator mode, run the cosmos init bootstrap so it creates the traces container."
+        ) from exc
 
 
 async def _query(sql: str, params: list[dict] | None = None) -> list[dict[str, Any]]:
     """Cross-partition query on the traces container."""
+    await _ensure_container()
     async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
         return [
@@ -39,10 +74,11 @@ async def _query(sql: str, params: list[dict] | None = None) -> list[dict[str, A
 
 
 async def _get_one(session_id: str) -> dict[str, Any] | None:
-    from azure.cosmos import exceptions as cosmos_exc
+    await _ensure_container()
     try:
         async with _client() as c:
             ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
+            # Partition key value is the trace document's `partition_key=session_id`.
             return await ctr.read_item(item=session_id, partition_key=session_id)
     except cosmos_exc.CosmosResourceNotFoundError:
         return None
