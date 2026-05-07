@@ -31,6 +31,11 @@ evaluation:
   model: "llama3.1:8b"
   timeout: 60
 
+pii_masking:
+  # Optional custom overrides. If omitted, built-in defaults mask emails,
+  # phone numbers, SSNs, and long account-like identifiers.
+  patterns: []
+
 memory:
   provider: "auto"  # "cosmosdb", "local_file", or "auto"
   local_traces_dir: "traces"
