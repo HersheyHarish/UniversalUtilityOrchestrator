@@ -1,9 +1,3 @@
-"""
-observability.py — Trace queries and metrics aggregation for the registry API.
-
-Reads from the `traces` Cosmos container written by the orchestrator's trace_writer.
-All queries are cross-partition (traces partitioned by session_id).
-"""
 from __future__ import annotations
 import logging
 import os
@@ -55,13 +49,11 @@ async def _get_one(session_id: str) -> dict[str, Any] | None:
 async def list_traces(
     status:      str | None = None,
     agent_name:  str | None = None,
+    trigger_type: str | None = None,
     since_hours: int        = 24,
     limit:       int        = 50,
 ) -> list[dict[str, Any]]:
-    """
-    Return recent traces with lightweight summary fields (no step payloads).
-    since_hours: look back this many hours (default 24, max 720 = 30 days)
-    """
+
     since_hours = min(since_hours, 720)
     since_iso   = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
 
@@ -71,6 +63,10 @@ async def list_traces(
     if status:
         conditions.append("c.status = @status")
         params.append({"name": "@status", "value": status})
+    
+    if trigger_type:
+        conditions.append("c.trigger_type = @trigger_type")
+        params.append({"name": "@trigger_type", "value": trigger_type})
 
     # Filter by agent name: check if any step used that agent
     if agent_name:
@@ -81,6 +77,7 @@ async def list_traces(
 
     sql = f"""
         SELECT c.id, c.session_id, c.user_message, c.customer_id,
+               c.trigger_type, c.proactive_meta,
                c.status, c.started_at, c.completed_at, c.total_latency_ms,
                c.agents_invoked, c.error,
                c.plan.user_intent,
@@ -92,13 +89,63 @@ async def list_traces(
     """
     return await _query(sql, params)
 
+async def list_proactive_traces(
+    since_hours: int       = 24,
+    customer_id: str | None = None,
+    severity:    str | None = None,
+    agent_name:  str | None = None,
+    event_type:  str | None = None,
+    limit:       int        = 50,
+) -> list[dict]:
+
+    since_hours = min(since_hours, 720)
+    limit       = min(limit, 200)
+    since_iso   = (
+        datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    ).isoformat()
+
+    conditions: list[str] = [
+        "c.trigger_type = 'proactive'",
+        "c.started_at >= @since",
+    ]
+    params: list[dict] = [{"name": "@since", "value": since_iso}]
+
+    if customer_id:
+        conditions.append("c.customer_id = @customer_id")
+        params.append({"name": "@customer_id", "value": customer_id})
+
+    if severity:
+        conditions.append("c.proactive_meta.severity = @severity")
+        params.append({"name": "@severity", "value": severity})
+
+    if agent_name:
+        conditions.append("c.proactive_meta.agent_name = @agent_name")
+        params.append({"name": "@agent_name", "value": agent_name})
+
+    if event_type:
+        conditions.append("c.proactive_meta.event_type = @event_type")
+        params.append({"name": "@event_type", "value": event_type})
+
+    sql = f"""
+        SELECT
+            c.id, c.session_id, c.customer_id, c.trigger_type,
+            c.status, c.started_at, c.completed_at,
+            c.total_latency_ms, c.agents_invoked,
+            c.final_response, c.error,
+            c.proactive_meta
+        FROM c
+        WHERE {" AND ".join(conditions)}
+        ORDER BY c.started_at DESC
+        OFFSET 0 LIMIT {limit}
+    """
+    return await _query(sql, params)
+
 
 # =============================================================================
 # Full trace detail
 # =============================================================================
 
 async def get_trace(session_id: str) -> dict[str, Any] | None:
-    """Return the full trace document including all step inputs/outputs."""
     return await _get_one(session_id)
 
 
@@ -107,9 +154,6 @@ async def get_trace(session_id: str) -> dict[str, Any] | None:
 # =============================================================================
 
 async def get_metrics(since_hours: int = 24) -> dict[str, Any]:
-    """
-    Overall system metrics for the metrics dashboard.
-    """
     since_hours = min(since_hours, 720)
     since_iso   = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
 
@@ -158,7 +202,6 @@ async def get_metrics(since_hours: int = 24) -> dict[str, Any]:
         "total_agent_invocations": sum(r.get("agents_invoked") or 0 for r in rows),
         "since_hours":     since_hours,
     }
-
 
 async def get_agent_metrics(since_hours: int = 24) -> list[dict[str, Any]]:
     """

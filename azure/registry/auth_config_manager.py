@@ -1,27 +1,3 @@
-"""
-auth_config_manager.py — Stores agent auth secrets in Key Vault.
-
-Called by registry.py when an agent is created or updated with auth_secrets.
-
-Responsibilities:
-  1. Accept the agent name + auth_config + auth_secrets from the request.
-  2. For each non-empty secret value in auth_secrets, generate a deterministic
-     Key Vault secret name and write the value to Key Vault via MSI.
-  3. Return an updated AuthConfig with the secret_name references filled in.
-     The caller then stores this updated config in Cosmos (never the values).
-
-Secret naming convention:
-  agent-{slug}-apikey           API key
-  agent-{slug}-bearertoken      Bearer token
-  agent-{slug}-basicpassword    Basic auth password
-  agent-{slug}-oauth2secret     OAuth2 client secret
-  agent-{slug}-custom-{index}   Custom entry at index N
-
-{slug} = lowercase, non-alphanumeric chars replaced with hyphens, max 24 chars.
-This is deterministic: re-saving an agent overwrites the same secret (idempotent).
-
-Key Vault limits: secret names 1-127 chars, alphanumeric and hyphens only.
-"""
 from __future__ import annotations
 import logging
 import os

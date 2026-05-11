@@ -1,23 +1,3 @@
-"""
-capability_fetcher.py — Auto-fetch capabilities from a remote agent.
-
-Flow:
-  1. Admin fills endpoint_url, auth_config, auth_secrets, invocation_config in the UI.
-  2. UI calls POST /api/agents/capabilities/fetch with those fields.
-  3. This module builds a "describe your capabilities" request using the
-     agent's own invocation_config body_template so the message format is correct.
-  4. Auth is injected using plain values from auth_secrets (NOT Key Vault) because
-     the agent may not be registered yet — secrets haven't been stored.
-  5. The response is parsed with multiple strategies (JSON array, JSON object,
-     OpenAI tools format, natural language fallback).
-  6. Parsed capabilities are returned to the UI for review before saving.
-
-Auth note:
-  This module uses resolve_plain() — a variant of auth_injector.resolve() that
-  accepts raw secret values instead of Key Vault secret names. This is safe
-  because the values travel only within the Azure Functions runtime and are never
-  logged or persisted.
-"""
 from __future__ import annotations
 import base64
 import json
@@ -38,13 +18,11 @@ _CAPABILITY_TASK = (
     "Return ONLY the JSON array, no prose."
 )
 
-
 # =============================================================================
 # Inline auth resolver (plain values — no Key Vault)
 # =============================================================================
 
 class _PlainAuth:
-    """Holds resolved headers and params built from plain secret values."""
     def __init__(self):
         self.headers: dict[str, str] = {}
         self.params:  dict[str, str] = {}
@@ -58,10 +36,6 @@ class _PlainAuth:
 
 
 def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
-    """
-    Resolve auth from plain values (no Key Vault round-trip).
-    Used only during capability fetch — secrets are not persisted.
-    """
     result    = _PlainAuth()
     auth_type = (auth_config or {}).get("auth_type", "none")
 
@@ -120,11 +94,6 @@ def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
 # =============================================================================
 
 def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
-    """
-    Build the capability-discovery request body using the agent's body_template.
-    Replaces {task} (and similar tokens) with the capability-listing prompt.
-    Falls back to the standard AgentRequest schema when template is empty.
-    """
     template = (invocation_config or {}).get("body_template") or {}
 
     if not template:
@@ -169,7 +138,6 @@ def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
 # =============================================================================
 
 def _try_json_array(text: str) -> list[dict] | None:
-    """Strategy 1: response is a bare JSON array of capability objects."""
     text = text.strip()
     # Strip markdown code fences if present
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
@@ -194,10 +162,6 @@ def _try_json_array(text: str) -> list[dict] | None:
 
 
 def _try_json_object(text: str) -> list[dict] | None:
-    """
-    Strategy 2: response is a JSON object with a capabilities / tools / functions key.
-    Handles OpenAI tools format: {"tools": [{"name": ..., "description": ..., "parameters": ...}]}
-    """
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
@@ -237,10 +201,6 @@ def _try_json_object(text: str) -> list[dict] | None:
 
 
 def _normalise_list(items: list) -> list[dict]:
-    """
-    Convert heterogeneous capability representations to uniform
-    {"name": str, "description": str} dicts.
-    """
     result = []
     for item in items:
         if isinstance(item, str):
@@ -283,7 +243,6 @@ def _normalise_list(items: list) -> list[dict]:
 
 
 def _to_snake(text: str) -> str:
-    """Convert any string to a valid snake_case capability name."""
     text = text.lower()
     text = re.sub(r"[^a-z0-9]+", "_", text)
     text = re.sub(r"_+", "_", text).strip("_")
@@ -291,7 +250,6 @@ def _to_snake(text: str) -> str:
 
 
 def _try_extract_from_result_path(resp: dict, result_path: str) -> str | None:
-    """Walk result_path to find a string suitable for further parsing."""
     if not result_path:
         return None
     parts = result_path.split(".")
@@ -305,10 +263,6 @@ def _try_extract_from_result_path(resp: dict, result_path: str) -> str | None:
 
 
 def _parse_response(resp_body: Any, result_path: str) -> list[dict]:
-    """
-    Try all parsing strategies in order. Return the first successful result.
-    Returns an empty list when nothing can be extracted (caller surfaces an error).
-    """
     # If result_path is configured, extract that field first
     if isinstance(resp_body, dict) and result_path:
         extracted = _try_extract_from_result_path(resp_body, result_path)
@@ -343,21 +297,6 @@ async def fetch_capabilities(
     auth_secrets:      dict,
     invocation_config: dict,
 ) -> dict[str, Any]:
-    """
-    Call the remote agent with a capability-discovery prompt and return
-    a list of parsed capabilities.
-
-    Returns:
-        {
-          "capabilities": [{"name": ..., "description": ..., ...}],
-          "raw_response":  str,       # truncated raw text for debugging
-          "parse_strategy": str,      # which strategy succeeded
-          "warning": str | None,      # non-fatal issue (e.g. OAuth2 skipped)
-        }
-
-    Raises:
-        RuntimeError with a human-readable message on any hard error.
-    """
     if not endpoint_url:
         raise RuntimeError("endpoint_url is required.")
     if not endpoint_url.startswith(("http://", "https://")):

@@ -1,49 +1,3 @@
-"""
-function_app.py — Agent Registry API · Azure Functions v2 (Python)
-===================================================================
-
-All routes and auth fully integrated in this single file.
-
-Auth routes (ANONYMOUS — no function key required):
-  POST  /api/auth/login      Validate credentials, return session token
-  POST  /api/auth/logout     Invalidate session immediately
-  GET   /api/auth/verify     Check if a session token is still valid
-
-System routes (ANONYMOUS):
-  GET   /api/health           Liveness probe
-  GET   /api/agents/dashboard HTML dashboard for browser viewing
-
-All other routes require:
-  1. Function-level host key  →  ?code=<key>  or  x-functions-key header
-  2. Valid session token       →  X-Session-Token header
-
-Registry — core CRUD:
-  POST   /api/agents                   Register new agent (409 if name exists)
-  GET    /api/agents                   List  (?status ?utility_type ?tag ?q)
-  GET    /api/agents/{id}              Get single agent
-  PUT    /api/agents/{id}              Full replacement
-  PATCH  /api/agents/{id}             Partial update
-  DELETE /api/agents/{id}             Soft delete  (?hard=true for physical)
-
-Registry — status & capabilities:
-  PATCH  /api/agents/{id}/status               Set status + optional reason
-  POST   /api/agents/{id}/capabilities         Add capability
-  DELETE /api/agents/{id}/capabilities/{name}  Remove capability
-
-Registry — health probing:
-  GET    /api/agents/{id}/ping   Probe one agent, update its health fields
-  POST   /api/agents/ping-all    Probe all active agents concurrently
-
-Registry — discovery:
-  GET    /api/agents/stats         Aggregate counts / metadata
-  GET    /api/agents/capabilities  Capability index across active agents
-  GET    /api/agents/export        Full JSON export (file download)
-
-Route ordering note:
-  Fixed paths  (/ping-all, /stats, /capabilities, /export, /dashboard)
-  are registered BEFORE parameterised paths (/{id}) so the literal
-  segments always win over the wildcard.
-"""
 from __future__ import annotations
 import json
 import logging
@@ -101,7 +55,6 @@ def _html(body: str, status: int = 200) -> func.HttpResponse:
 
 
 def _token_from(req: func.HttpRequest) -> str:
-    """Extract session token from X-Session-Token header or ?session_token= param."""
     return (
         req.headers.get("X-Session-Token")
         or req.params.get("session_token")
@@ -110,11 +63,6 @@ def _token_from(req: func.HttpRequest) -> str:
 
 
 async def _guard(req: func.HttpRequest) -> func.HttpResponse | None:
-    """
-    Session guard for protected routes.
-    Returns None when the session is valid (caller proceeds).
-    Returns an error HttpResponse when the session is missing or invalid.
-    """
     if _IMPORT_ERROR:
         return _err("Worker startup failed", 503, _IMPORT_ERROR)
 
@@ -133,22 +81,8 @@ async def _guard(req: func.HttpRequest) -> func.HttpResponse | None:
 # AUTH ROUTES  (ANONYMOUS — no function key required)
 # =============================================================================
 
-@app.route(route="auth/login", methods=["POST"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="auth/login", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
 async def auth_login(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Validate admin credentials and return a session token.
-    Credentials are validated against Key Vault secrets — never stored in code.
-
-    Request body:
-      { "username": "admin", "password": "yourpassword" }
-
-    Success response (200):
-      { "token": "<uuid>", "expires_at": "<iso>", "username": "admin" }
-
-    Failure response (401):
-      { "error": "Invalid credentials" }
-    """
     if _IMPORT_ERROR:
         return _err("Worker startup failed", 503, _IMPORT_ERROR)
 
@@ -170,15 +104,8 @@ async def auth_login(req: func.HttpRequest) -> func.HttpResponse:
     return _json(result.model_dump())
 
 
-@app.route(route="auth/logout", methods=["POST"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="auth/logout", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
 async def auth_logout(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Invalidate the current session immediately.
-    Accepts token via X-Session-Token header or request body.
-
-    Always returns 200 regardless of whether the token existed.
-    """
     if _IMPORT_ERROR:
         return _err("Worker startup failed", 503, _IMPORT_ERROR)
 
@@ -220,14 +147,8 @@ async def auth_verify(req: func.HttpRequest) -> func.HttpResponse:
 # SYSTEM ROUTES  (ANONYMOUS)
 # =============================================================================
 
-@app.route(route="health", methods=["GET"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 async def health(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Liveness probe — no auth required.
-    Returns 503 with import_error when a startup module failed to load
-    so you can diagnose deployment issues without digging through logs.
-    """
     if _IMPORT_ERROR:
         return func.HttpResponse(
             json.dumps({"status": "unhealthy", "import_error": _IMPORT_ERROR}),
@@ -242,10 +163,8 @@ async def health(req: func.HttpRequest) -> func.HttpResponse:
     return _json({"status": "ok", "service": "registry-api", "time": datetime.utcnow().isoformat()})
 
 
-@app.route(route="agents/dashboard", methods=["GET"],
-           auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="agents/dashboard", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 async def dashboard(req: func.HttpRequest) -> func.HttpResponse:
-    """Browser-viewable HTML dashboard. Auto-refreshes every 60 s."""
     if _IMPORT_ERROR:
         return _html(f"<pre>Import error: {_IMPORT_ERROR}</pre>", 503)
     try:
@@ -263,13 +182,6 @@ async def dashboard(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/ping-all", methods=["POST"])
 async def ping_all(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Probe all active agents concurrently (bounded to 5 simultaneous connections).
-    Updates each agent's last_health_status, last_health_ms, and last_health_check_at.
-    Auto-transitions agents between active ↔ degraded based on probe results.
-
-    Requires: X-Session-Token header with a valid session token.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -283,16 +195,6 @@ async def ping_all(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/stats", methods=["GET"])
 async def stats(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Returns aggregate registry statistics:
-      - total agent count
-      - breakdown by status (active / inactive / degraded)
-      - breakdown by utility type
-      - total capabilities count
-      - unique tag list
-      - last registration timestamp
-      - last health check timestamp
-    """
     err = await _guard(req)
     if err:
         return err
@@ -306,11 +208,6 @@ async def stats(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/capabilities", methods=["GET"])
 async def capabilities_index(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Returns a deduplicated index of all capabilities across active agents.
-    Useful for the planner LLM to understand what the registry can do without
-    loading every agent document.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -324,10 +221,6 @@ async def capabilities_index(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/export", methods=["GET"])
 async def export_agents(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Download the full registry as a JSON file. Includes all statuses.
-    Used for backup, migration, and seeding test environments.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -356,15 +249,6 @@ async def export_agents(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="traces", methods=["GET"])
 async def list_traces(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    List execution traces with optional filters.
-
-    Query params:
-      status      completed | failed | running
-      agent       filter by agent name that was invoked
-      since_hours look-back window in hours (default 24, max 720)
-      limit       max rows returned (default 50, max 200)
-    """
     err = await _guard(req)
     if err:
         return err
@@ -372,6 +256,7 @@ async def list_traces(req: func.HttpRequest) -> func.HttpResponse:
         rows = await observability.list_traces(
             status=req.params.get("status"),
             agent_name=req.params.get("agent"),
+            trigger_type=req.params.get("trigger_type"),
             since_hours=int(req.params.get("since_hours", "24")),
             limit=int(req.params.get("limit", "50")),
         )
@@ -380,13 +265,8 @@ async def list_traces(req: func.HttpRequest) -> func.HttpResponse:
         log.exception("list_traces failed")
         return _err(str(exc), 500)
 
-
 @app.route(route="traces/{trace_id}", methods=["GET"])
 async def get_trace(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Return the full trace document including all step inputs/outputs.
-    trace_id == session_id.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -403,7 +283,6 @@ async def get_trace(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="observability/metrics", methods=["GET"])
 async def obs_metrics(req: func.HttpRequest) -> func.HttpResponse:
-    """Aggregate metrics: total requests, success rate, avg/p95 latency."""
     err = await _guard(req)
     if err:
         return err
@@ -416,10 +295,8 @@ async def obs_metrics(req: func.HttpRequest) -> func.HttpResponse:
         log.exception("obs_metrics failed")
         return _err(str(exc), 500)
 
-
 @app.route(route="observability/agents", methods=["GET"])
 async def obs_agent_metrics(req: func.HttpRequest) -> func.HttpResponse:
-    """Per-agent: invocations, success rate, avg latency, recent errors."""
     err = await _guard(req)
     if err:
         return err
@@ -435,7 +312,6 @@ async def obs_agent_metrics(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="observability/timeseries", methods=["GET"])
 async def obs_timeseries(req: func.HttpRequest) -> func.HttpResponse:
-    """Time-bucketed request counts for trend charts."""
     err = await _guard(req)
     if err:
         return err
@@ -455,13 +331,6 @@ async def obs_timeseries(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents", methods=["POST"])
 async def create_agent(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Register a new agent in the registry.
-    Returns 409 Conflict if an agent with the same name already exists.
-
-    Required fields: name, description, endpoint_url
-    Optional fields: api_key_secret_name, version, utility_types, tags, capabilities, metadata
-    """
     err = await _guard(req)
     if err:
         return err
@@ -481,15 +350,6 @@ async def create_agent(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents", methods=["GET"])
 async def list_agents(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    List registered agents with optional filtering.
-
-    Query parameters:
-      q             Full-text search across name, description, tags, capability names
-      status        Filter by status: active | inactive | degraded
-      utility_type  Filter by utility type: electric | gas | water | multi
-      tag           Filter by exact tag match
-    """
     err = await _guard(req)
     if err:
         return err
@@ -509,38 +369,6 @@ async def list_agents(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/capabilities/fetch", methods=["POST"])
 async def fetch_agent_capabilities(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Auto-discover capabilities of a remote agent by calling it with a
-    structured capability-listing prompt.
-
-    This endpoint is used by the React UI before saving a new or edited agent.
-    The admin fills endpoint_url, auth_config, auth_secrets, and invocation_config,
-    then clicks "Auto-fetch capabilities". The response is a parsed list of
-    capabilities that the admin can review and confirm before saving.
-
-    Auth note: auth_secrets carries PLAIN VALUES here (not Key Vault refs) because
-    the agent may not be registered yet. Plain values are used for this single
-    outgoing call and never persisted.
-
-    Request body:
-      {
-        "endpoint_url":      "https://...",
-        "auth_config":       { ... },       // AuthConfig dict
-        "auth_secrets":      { ... },       // AuthSecrets dict with plain values
-        "invocation_config": { ... }        // InvocationConfig dict
-      }
-
-    Success (200):
-      {
-        "capabilities": [{"name": "...", "description": "...", ...}],
-        "raw_response":  "...",
-        "parse_strategy": "...",
-        "warning": null | "..."
-      }
-
-    Error (400 / 502):
-      { "error": "Human-readable reason" }
-    """
     err = await _guard(req)
     if err:
         return err
@@ -577,7 +405,6 @@ async def fetch_agent_capabilities(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}", methods=["GET"])
 async def get_agent(req: func.HttpRequest) -> func.HttpResponse:
-    """Retrieve a single agent by its document ID."""
     err = await _guard(req)
     if err:
         return err
@@ -594,11 +421,6 @@ async def get_agent(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}", methods=["PUT"])
 async def replace_agent(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Full replacement of all mutable fields.
-    Preserves: id, created_at, and health tracking fields.
-    Overwrites: name, description, endpoint_url, version, capabilities, etc.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -619,10 +441,6 @@ async def replace_agent(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}", methods=["PATCH"])
 async def patch_agent(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Partial update — only the fields present in the request body are changed.
-    Unmentioned fields are left untouched.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -643,13 +461,6 @@ async def patch_agent(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}", methods=["DELETE"])
 async def delete_agent(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Soft delete by default: sets status to inactive, document is retained.
-    Pass ?hard=true for physical deletion (use only for GDPR/cleanup).
-
-    Soft-deleted agents are excluded from orchestrator planning but remain
-    visible in the dashboard and export for audit purposes.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -670,14 +481,6 @@ async def delete_agent(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}/status", methods=["PATCH"])
 async def set_status(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Explicitly set agent status with an optional audit reason.
-
-    Request body:
-      { "status": "active|inactive|degraded", "reason": "optional note" }
-
-    The reason is stored in metadata.status_reason for audit purposes.
-    """
     err = await _guard(req)
     if err:
         return err
@@ -698,14 +501,6 @@ async def set_status(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}/capabilities", methods=["POST"])
 async def add_capability(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Add a new capability to an existing agent.
-    Idempotent — if a capability with the same name already exists, returns 200
-    with the current agent document unchanged.
-
-    Request body:
-      { "name": "check_balance", "description": "Check account balance", ... }
-    """
     err = await _guard(req)
     if err:
         return err
@@ -726,7 +521,6 @@ async def add_capability(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}/capabilities/{cap_name}", methods=["DELETE"])
 async def remove_capability(req: func.HttpRequest) -> func.HttpResponse:
-    """Remove a capability from an agent by its exact name."""
     err = await _guard(req)
     if err:
         return err
@@ -748,15 +542,6 @@ async def remove_capability(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="agents/{agent_id}/ping", methods=["GET"])
 async def ping_agent(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Probe a single agent's /api/health endpoint and update its health fields
-    in the registry document.
-
-    Returns 200 when the agent is healthy, 502 when unhealthy or unreachable.
-    The agent's status field is automatically transitioned:
-      healthy    → active   (if it was degraded)
-      unhealthy  → degraded (if it was active)
-    """
     err = await _guard(req)
     if err:
         return err

@@ -1,13 +1,14 @@
 import React from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
-import { IcDashboard, IcAgents, IcHealth, IcLogOut } from "./Icons.jsx";
+import { IcDashboard, IcAgents, IcHealth, IcLogOut, IcActivity, IcChart, IcBell } from "./Icons.jsx";
 
 const NAV = [
   { path: "/dashboard", label: "Dashboard", Icon: IcDashboard },
   { path: "/agents", label: "Agents", Icon: IcAgents },
   { path: "/health", label: "Health monitor", Icon: IcHealth },
-  { path: "/proactive", label: "Notifications", Icon: IcBell }
+  { path: "/traces", label: "Trace explorer", Icon: IcActivity },
+  { path: "/metrics", label: "Metrics", Icon: IcChart },
 ];
 
 export default function Layout() {

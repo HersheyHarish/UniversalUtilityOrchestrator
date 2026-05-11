@@ -69,7 +69,7 @@ async def _upsert_inner(doc: dict[str, Any]) -> None:
 
 class TraceContext:
 
-    def __init__(self, session_id: str, user_message: str, customer_id: str | None):
+    def __init__(self, session_id: str, user_message: str, customer_id: str | None, trigger_type: str = "reactive",proactive_meta: dict | None = None):
         self.session_id = session_id
         self._doc: dict[str, Any] = {
             "id":               session_id,
@@ -77,6 +77,8 @@ class TraceContext:
             "session_id":       session_id,
             "user_message":     user_message,
             "customer_id":      customer_id or "",
+            "trigger_type":     trigger_type,
+            "proactive_meta":   proactive_meta,
             "status":           "running",
             "started_at":       _now(),
             "completed_at":     None,
@@ -89,7 +91,7 @@ class TraceContext:
             "ttl":              _TTL_SECS,
         }
         self._step_start_times: dict[int, str] = {}
-        log.info("TraceContext created for session %s", session_id)
+        log.info("TraceContext created for session %s trigger_type=%s", session_id, trigger_type)
 
     async def record_plan(self, plan: Any) -> None:
         await _verify_container()
@@ -166,7 +168,6 @@ class TraceContext:
             "latency_ms":   latency,
             "status":       "completed",
         }
-        # Refresh mapping_result with final data (tokens, warnings, etc.)
         if mapping_result is not None:
             updates["mapping_result"] = _serialise_mapping(mapping_result)
 

@@ -1,22 +1,3 @@
-"""
-auth.py — Admin authentication for the Agent Registry API.
-
-Credentials are stored in Key Vault (never in code or env vars):
-  - admin-username  : plain-text username
-  - admin-password  : bcrypt hash of the password
-
-Generate a hash once with:
-  python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpass', bcrypt.gensalt()).decode())"
-
-Then store it:
-  az keyvault secret set --vault-name <KV> --name admin-password --value '<hash>'
-
-Session lifecycle:
-  1. POST /api/auth/login  → validate credentials → create session UUID in Cosmos
-  2. Every protected route calls auth.require_session(req) → validates token from header
-  3. POST /api/auth/logout → deletes session from Cosmos immediately
-  4. Sessions auto-expire after SESSION_TTL_HOURS via Cosmos TTL (no cron needed)
-"""
 from __future__ import annotations
 import logging
 import os
@@ -54,11 +35,6 @@ async def _get_secret(name: str) -> str:
 # ── Auth operations ───────────────────────────────────────────────────────────
 
 async def login(username: str, password: str) -> LoginResponse | None:
-    """
-    Validate username + password against Key Vault secrets.
-    On success: creates a session in Cosmos and returns LoginResponse.
-    On failure: returns None (caller should return 401).
-    """
     if not username or not password:
         return None
 
@@ -110,10 +86,6 @@ async def login(username: str, password: str) -> LoginResponse | None:
 
 
 async def validate(token: str) -> VerifyResponse:
-    """
-    Check that the token exists in Cosmos and has not expired.
-    Returns VerifyResponse(valid=True, username=...) or VerifyResponse(valid=False).
-    """
     if not token:
         return VerifyResponse(valid=False)
 
@@ -137,6 +109,5 @@ async def validate(token: str) -> VerifyResponse:
 
 
 async def logout(token: str) -> None:
-    """Immediately invalidate a session by removing it from Cosmos."""
     if token:
         await cosmos.session_delete(token)

@@ -139,7 +139,7 @@ async def save_step_start(session_id: str, step_id: int, agent_name: str, task: 
         partition_key=session_id,
         session_id=session_id,
         role=MessageRole.AGENT,
-        type=MessageType.STEP_START,
+        type=MessageType.EXEC_START,
         step_id=step_id,
         agent_name=agent_name,
         content=task,
@@ -153,7 +153,7 @@ async def save_step_result(session_id: str, step_id: int,
         partition_key=session_id,
         session_id=session_id,
         role=MessageRole.AGENT,
-        type=MessageType.STEP_RESULT,
+        type=MessageType.EXEC_RESULT,
         step_id=step_id,
         agent_name=agent_name,
         content=result,
@@ -167,7 +167,7 @@ async def save_step_error(session_id: str, step_id: int,
         partition_key=session_id,
         session_id=session_id,
         role=MessageRole.AGENT,
-        type=MessageType.STEP_ERROR,
+        type=MessageType.EXEC_ERROR,
         step_id=step_id,
         agent_name=agent_name,
         content=error,
@@ -192,7 +192,7 @@ async def get_step_results(session_id: str) -> list[dict[str, Any]]:
         "SELECT * FROM c WHERE c.session_id = @sid AND c.type = @t ORDER BY c.step_id",
         params=[
             {"name": "@sid", "value": session_id},
-            {"name": "@t",   "value": MessageType.STEP_RESULT},
+            {"name": "@t",   "value": MessageType.EXEC_RESULT},
         ],
         pk=session_id,
     )
@@ -200,6 +200,9 @@ async def get_step_results(session_id: str) -> list[dict[str, Any]]:
 async def get_proactive_messages(
     customer_id: str,
     since_iso:   str | None = None,
+    severity:    str | None = None,
+    event_type:  str | None = None,
+    agent_name:  str | None = None,
     limit:       int        = 50,
 ) -> list[dict[str, Any]]:
     conditions = [
@@ -211,6 +214,18 @@ async def get_proactive_messages(
     if since_iso:
         conditions.append("c.created_at >= @since")
         params.append({"name": "@since", "value": since_iso})
+
+    if severity:
+        conditions.append("c.metadata.severity = @severity")
+        params.append({"name": "@severity", "value": severity})
+ 
+    if event_type:
+        conditions.append("c.metadata.event_type = @event_type")
+        params.append({"name": "@event_type", "value": event_type})
+ 
+    if agent_name:
+        conditions.append("c.metadata.source_agent = @agent_name")
+        params.append({"name": "@agent_name", "value": agent_name})
 
     query = (
         "SELECT * FROM c WHERE "

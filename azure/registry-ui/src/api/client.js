@@ -154,9 +154,3 @@ export const observability = {
   timeseries: (since_hours = 24, bucket_hours = 1) =>
     req("GET", "/api/observability/timeseries", { params: { since_hours, bucket_hours } }),
 };
-
-
-export const ProactiveMessages = {
-  fetch: (customerId, since, limit) =>
-    req("GET", `/api/proactive/messages/${customerId}`, { params: { since, limit } }),
-};

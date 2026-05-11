@@ -104,12 +104,14 @@ async def _handle_failure(session_id: str, trace: TraceContext | None, message: 
 
     return _err(message, 500, str(error))
 
-async def _build_trace(session_id: str, message: str, customer_id: str) -> TraceContext | None:
+async def _build_trace(session_id: str, message: str, customer_id: str, trigger_type: str, metadata: dict | None) -> TraceContext | None:
     try:
         return TraceContext(
             session_id=session_id,
             user_message=message,
             customer_id=customer_id,
+            trigger_type=trigger_type,
+            proactive_meta=metadata,
         )
     except Exception as e:
         log.error(
@@ -137,7 +139,7 @@ async def _create_or_load_session(session_id: str | None, message: str, customer
         )
     )
 
-async def _process_request(message: str, customer_id: str, trigger_type: str, session_id: str | None = None, save_message_fn = None):
+async def _process_request(message: str, customer_id: str, trigger_type: str, session_id: str | None = None, metadata: dict | None = None, save_message_fn = None):
     try:
         session = await _create_or_load_session(
             session_id=session_id,
@@ -164,6 +166,8 @@ async def _process_request(message: str, customer_id: str, trigger_type: str, se
         session_id=session_id,
         message=message,
         customer_id=customer_id,
+        trigger_type=trigger_type,
+        metadata=metadata,
     )
 
     # Planning
@@ -173,6 +177,7 @@ async def _process_request(message: str, customer_id: str, trigger_type: str, se
             message=message,
             customer_id=customer_id,
             trigger_type=trigger_type,
+            args=metadata
         )
 
         await memory.save_plan(session_id, plan)
@@ -228,6 +233,7 @@ async def _process_request(message: str, customer_id: str, trigger_type: str, se
             step_results,
             message,
             trigger_type=trigger_type,
+            args=metadata
         )
 
         await memory.save_final_response(
@@ -290,6 +296,7 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
         customer_id=chat_req.customer_id,
         trigger_type="reactive",
         session_id=chat_req.session_id,
+        metadata=None,
         save_message_fn=lambda sid: memory.save_user_message(
             sid,
             chat_req.message,
@@ -310,21 +317,25 @@ async def proactive_trigger(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         return _err(f"Invalid request: {e}")
 
+    metadata = {
+        "source_agent_name": proactive_req.agent_name,
+        "event_type": proactive_req.event_type,
+        "context": proactive_req.context,
+        "severity": proactive_req.severity,
+    }
+
     return await _process_request(
         message=proactive_req.message,
         customer_id=proactive_req.customer_id,
         trigger_type="proactive",
+        metadata=metadata,
         save_message_fn=lambda sid: memory.save_proactive_message(
             sid,
             proactive_req.message,
-            metadata={
-                "source_agent_name": proactive_req.agent_name,
-                "event_type": proactive_req.event_type,
-                "context": proactive_req.context,
-                "severity": proactive_req.severity,
-            },
+            metadata=metadata
         ),
     )
+
 
 
 # ── GET /api/sessions/{session_id} ────────────────────────────────────────────
@@ -348,16 +359,27 @@ async def get_session(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="proactive/messages/{customer_id}", methods=["GET"])
 async def get_proactive_messages(req: func.HttpRequest) -> func.HttpResponse:
     if _IMPORT_ERROR:
-        return _err("Worker failed to start", 503, _IMPORT_ERROR)
-
+        return _err("Worker startup failed", 503)
+ 
     customer_id = req.route_params["customer_id"]
     since       = req.params.get("since")
-    limit       = int(req.params.get("limit", "50"))
-
+    severity    = req.params.get("severity")
+    event_type  = req.params.get("event_type")
+    agent_name  = req.params.get("agent_name")
+    limit_raw   = req.params.get("limit", "50")
+ 
+    try:
+        limit = int(limit_raw)
+    except ValueError:
+        return _err("limit must be an integer")
+ 
     try:
         messages = await memory.get_proactive_messages(
             customer_id=customer_id,
             since_iso=since,
+            severity=severity,
+            event_type=event_type,
+            agent_name=agent_name,
             limit=limit,
         )
         return _ok({
@@ -368,6 +390,7 @@ async def get_proactive_messages(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:
         log.exception("get_proactive_messages failed")
         return _err(str(exc), 500)
+ 
     
 def _fallback_response(results: dict) -> str:
     """Combine step results into a plain text fallback when synthesis fails."""

@@ -1,14 +1,14 @@
 import React, { useMemo } from "react";
 
-const ROW_H  = 36;
+const ROW_H = 36;
 const LABEL_W = 140;
 const PADDING = 10;
 
 const STATUS_COLOR = {
   completed: "#22c55e",
-  failed:    "#ef4444",
-  running:   "#6366f1",
-  skipped:   "#94a3b8",
+  failed: "#ef4444",
+  running: "#6366f1",
+  skipped: "#94a3b8",
 };
 
 function msLabel(ms) {
@@ -22,11 +22,11 @@ export default function TimelineView({ steps, traceStartedAt, onSelectStep, sele
     const t0 = traceStartedAt
       ? new Date(traceStartedAt).getTime()
       : Math.min(...steps
-          .filter(s => s.started_at)
-          .map(s => new Date(s.started_at).getTime()));
+        .filter(s => s.started_at)
+        .map(s => new Date(s.started_at).getTime()));
 
     const maxEnd = Math.max(...steps.map(s => {
-      const start   = s.started_at ? new Date(s.started_at).getTime() : t0;
+      const start = s.started_at ? new Date(s.started_at).getTime() : t0;
       const latency = s.latency_ms || 0;
       return start - t0 + latency;
     }));
@@ -45,13 +45,13 @@ export default function TimelineView({ steps, traceStartedAt, onSelectStep, sele
   }
 
   const { t0, totalMs } = data;
-  const svgW      = 700;
-  const chartW    = svgW - LABEL_W - PADDING * 2;
-  const svgH      = steps.length * ROW_H + 40 + 30; // +30 for axis
+  const svgW = 700;
+  const chartW = svgW - LABEL_W - PADDING * 2;
+  const svgH = steps.length * ROW_H + 40 + 30; // +30 for axis
 
   // Time axis ticks (4-5 ticks)
-  const tickCount  = 5;
-  const tickMs     = totalMs / tickCount;
+  const tickCount = 5;
+  const tickMs = totalMs / tickCount;
 
   function xOf(ms) {
     return LABEL_W + PADDING + (ms / totalMs) * chartW;
@@ -65,7 +65,7 @@ export default function TimelineView({ steps, traceStartedAt, onSelectStep, sele
         {/* Gridlines */}
         {Array.from({ length: tickCount + 1 }, (_, i) => {
           const ms = i * tickMs;
-          const x  = xOf(ms);
+          const x = xOf(ms);
           return (
             <g key={i}>
               <line x1={x} y1={30} x2={x} y2={svgH - 30}
@@ -83,11 +83,11 @@ export default function TimelineView({ steps, traceStartedAt, onSelectStep, sele
           const startMs = s.started_at
             ? new Date(s.started_at).getTime() - t0
             : 0;
-          const dur     = s.latency_ms || 0;
-          const barX    = xOf(startMs);
-          const barW    = Math.max((dur / totalMs) * chartW, dur > 0 ? 4 : 2);
-          const y       = 30 + i * ROW_H;
-          const color   = STATUS_COLOR[s.status] || "#94a3b8";
+          const dur = s.latency_ms || 0;
+          const barX = xOf(startMs);
+          const barW = Math.max((dur / totalMs) * chartW, dur > 0 ? 4 : 2);
+          const y = 30 + i * ROW_H;
+          const color = STATUS_COLOR[s.status] || "#94a3b8";
           const isSelected = selectedStepId === s.step_id;
 
           const labelTrunc = (s.agent_name || "").length > 16
@@ -154,12 +154,16 @@ export default function TimelineView({ steps, traceStartedAt, onSelectStep, sele
         </text>
       </svg>
 
-      <div style={{ display: "flex", gap: 16, padding: "6px 4px",
-        fontSize: 11, color: "var(--text-muted)" }}>
+      <div style={{
+        display: "flex", gap: 16, padding: "6px 4px",
+        fontSize: 11, color: "var(--text-muted)"
+      }}>
         {Object.entries(STATUS_COLOR).map(([s, c]) => (
           <div key={s} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2,
-              background: c, flexShrink: 0 }} />
+            <span style={{
+              width: 10, height: 10, borderRadius: 2,
+              background: c, flexShrink: 0
+            }} />
             {s}
           </div>
         ))}

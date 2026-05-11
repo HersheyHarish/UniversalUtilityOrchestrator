@@ -286,9 +286,9 @@ async def execute_plan(
             await memory.save_step_result(
                 session_id=session_id,
                 result=response["result"],
+                step_id=step.step_id,
+                agent_name=step.agent_name,
                 metadata={
-                    "step_id": step.step_id,
-                    "agent_name": step.agent_name,
                     "actions_taken": response.get("actions_taken"),
                     "suggestions":   response.get("suggestions"),
                     **response.get("metadata", {}),
