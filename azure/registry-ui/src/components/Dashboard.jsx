@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useCallback, useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { registry, agents as agentsApi } from "../api/client.js";
 import { Spinner, StatusBadge, HealthDot, Alert, EmptyState } from "./Primitives.jsx";
 import { IcAgents, IcHealth, IcZap, IcRefresh, IcChevronRight } from "./Icons.jsx";
@@ -17,25 +17,65 @@ function StatCard({ icon, bg, value, label, sub }) {
 
 export default function Dashboard() {
   const navigate          = useNavigate();
+  const location          = useLocation();
   const [stats,  setStats]  = useState(null);
   const [recent, setRecent] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error,  setError]   = useState("");
+  const [statsError,  setStatsError]   = useState("");
+  const [recentError, setRecentError]  = useState("");
 
-  const load = async () => {
-    setLoading(true); setError("");
-    try {
-      const [s, a] = await Promise.all([registry.stats(), agentsApi.list()]);
-      setStats(s);
-      setRecent((a.agents || []).slice(0, 6));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setStatsError("");
+    setRecentError("");
+
+    const [statsResult, agentsResult] = await Promise.allSettled([
+      registry.stats(),
+      agentsApi.list(),
+    ]);
+
+    if (statsResult.status === "fulfilled") {
+      setStats(statsResult.value);
+    } else {
+      setStats(null);
+      setStatsError(statsResult.reason?.message || "Failed to load registry stats.");
     }
-  };
 
-  useEffect(() => { load(); }, []);
+    if (agentsResult.status === "fulfilled") {
+      setRecent((agentsResult.value?.agents || []).slice(0, 6));
+    } else {
+      setRecent([]);
+      setRecentError(agentsResult.reason?.message || "Failed to load recent agents.");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Refresh when user returns focus to keep dashboard in sync.
+  useEffect(() => {
+    const onFocus = () => load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [load]);
+
+  // Auto-refresh while dashboard is mounted to reflect recent registrations.
+  useEffect(() => {
+    const timer = window.setInterval(() => load(), 30000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  // Refresh whenever route navigation returns to dashboard.
+  useEffect(() => {
+    if (location.pathname === "/") load();
+  }, [location.key, location.pathname, load]);
 
   if (loading) return (
     <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
@@ -55,7 +95,8 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {error && <Alert type="error" onClose={() => setError("")}>{error}</Alert>}
+      {statsError && <Alert type="error" onClose={() => setStatsError("")}>{statsError}</Alert>}
+      {recentError && <Alert type="error" onClose={() => setRecentError("")}>{recentError}</Alert>}
 
       {/* Stat cards */}
       <div className="grid-4">

@@ -218,6 +218,9 @@ tbody tr:hover td { background: #f8f9ff; }
   box-shadow: var(--shadow-lg); width: 100%; max-width: 640px;
   max-height: 90vh; overflow-y: auto; animation: slideUp .2s ease;
 }
+.import-modal {
+  max-width: 780px;
+}
 .modal-header {
   padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
@@ -226,6 +229,51 @@ tbody tr:hover td { background: #f8f9ff; }
 .modal-body   { padding: 24px; display: flex; flex-direction: column; gap: 18px; }
 .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border);
                 display: flex; justify-content: flex-end; gap: 10px; }
+
+.import-textarea {
+  min-height: 220px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px;
+}
+
+.import-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-page);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.import-results {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.import-result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+
+.import-result-row.ok {
+  background: var(--c-success-bg);
+  color: var(--c-success-text);
+}
+
+.import-result-row.failed {
+  background: var(--c-danger-bg);
+  color: var(--c-danger-text);
+}
 
 /* ── Tooltip ────────────────────────────────────────────────────────────── */
 .tooltip-wrap  { position: relative; display: inline-flex; align-items: center; }

@@ -64,6 +64,7 @@ try:
     import auth
     import capability_fetcher
     import cosmos  # noqa: F401  (validates env on import)
+    import observability
     import registry
     import runtime_contract
     from models import (
@@ -353,6 +354,24 @@ async def stats(req: func.HttpRequest) -> func.HttpResponse:
         return _err(str(exc), 500)
 
 
+@app.route(route="registry/stats", methods=["GET"])
+async def registry_stats(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Stable non-overlapping stats route.
+    Mirrors /api/agents/stats so clients can avoid dynamic /agents/{agent_id}
+    collisions in mixed-version environments.
+    """
+    err = await _guard(req)
+    if err:
+        return err
+    try:
+        s = await registry.get_stats()
+        return _json(s.model_dump())
+    except Exception as exc:
+        log.exception("registry_stats failed")
+        return _err(str(exc), 500)
+
+
 @app.route(route="agents/capabilities", methods=["GET"])
 async def capabilities_index(req: func.HttpRequest) -> func.HttpResponse:
     """
@@ -399,6 +418,101 @@ async def export_agents(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as exc:
         log.exception("export_agents failed")
+        return _err(str(exc), 500)
+
+
+@app.route(route="observability/metrics", methods=["GET"])
+async def get_observability_metrics(req: func.HttpRequest) -> func.HttpResponse:
+    err = await _guard(req)
+    if err:
+        return err
+    try:
+        since_hours = int(req.params.get("since_hours", 24))
+    except Exception:
+        return _err("since_hours must be an integer", 400)
+    try:
+        data = await observability.get_metrics(since_hours=since_hours)
+        return _json(data)
+    except Exception as exc:
+        log.exception("get_observability_metrics failed")
+        return _err(str(exc), 500)
+
+
+@app.route(route="observability/agent-metrics", methods=["GET"])
+async def get_observability_agent_metrics(req: func.HttpRequest) -> func.HttpResponse:
+    err = await _guard(req)
+    if err:
+        return err
+    try:
+        since_hours = int(req.params.get("since_hours", 24))
+    except Exception:
+        return _err("since_hours must be an integer", 400)
+    try:
+        agents = await observability.get_agent_metrics(since_hours=since_hours)
+        return _json({"agents": agents})
+    except Exception as exc:
+        log.exception("get_observability_agent_metrics failed")
+        return _err(str(exc), 500)
+
+
+@app.route(route="observability/timeseries", methods=["GET"])
+async def get_observability_timeseries(req: func.HttpRequest) -> func.HttpResponse:
+    err = await _guard(req)
+    if err:
+        return err
+    try:
+        since_hours = int(req.params.get("since_hours", 24))
+        bucket_hours = int(req.params.get("bucket_hours", 1))
+    except Exception:
+        return _err("since_hours and bucket_hours must be integers", 400)
+    try:
+        buckets = await observability.get_time_series(since_hours=since_hours, bucket_hours=bucket_hours)
+        return _json({"buckets": buckets})
+    except Exception as exc:
+        log.exception("get_observability_timeseries failed")
+        return _err(str(exc), 500)
+
+
+@app.route(route="traces", methods=["GET"])
+async def list_traces(req: func.HttpRequest) -> func.HttpResponse:
+    err = await _guard(req)
+    if err:
+        return err
+    status = req.params.get("status")
+    agent = req.params.get("agent")
+    try:
+        since_hours = int(req.params.get("since_hours", 24))
+        limit = int(req.params.get("limit", 50))
+    except Exception:
+        return _err("since_hours and limit must be integers", 400)
+    try:
+        rows = await observability.list_traces(
+            status=status,
+            agent_name=agent,
+            since_hours=since_hours,
+            limit=limit,
+        )
+        return _json({"count": len(rows), "traces": rows})
+    except Exception as exc:
+        log.exception("list_traces failed")
+        return _err(str(exc), 500)
+
+
+@app.route(route="traces/{session_id}", methods=["GET"])
+async def get_trace(req: func.HttpRequest) -> func.HttpResponse:
+    err = await _guard(req)
+    if err:
+        return err
+    session_id = req.route_params.get("session_id")
+    if not session_id:
+        return _err("session_id is required", 400)
+    try:
+        trace = await observability.get_trace(session_id)
+        if not trace:
+            return _err("Trace not found", 404)
+        return _json(trace)
+    except Exception as exc:
+        log.exception("get_trace failed for session %s", session_id)
         return _err(str(exc), 500)
 
 
