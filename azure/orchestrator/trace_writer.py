@@ -16,10 +16,27 @@ _ENDPOINT   = os.environ["COSMOS_ENDPOINT"]
 _DATABASE   = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
 _CONTAINER  = "traces"
 _TTL_SECS   = 2592000
-_CREDENTIAL = DefaultAzureCredential()
+
+_CREDENTIAL: DefaultAzureCredential | None = None
 
 _container_verified = False
 
+def _client() -> CosmosClient:
+    app_env = os.environ.get("APP_ENV", "local").strip().lower()
+    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    if app_env in {"prod", "production"} and use_local:
+        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
+
+    if use_local:
+        return CosmosClient(
+            _ENDPOINT,
+            credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+            connection_verify=False,
+        )
+    global _CREDENTIAL
+    if _CREDENTIAL is None:
+        _CREDENTIAL = DefaultAzureCredential()
+    return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -40,7 +57,7 @@ async def _verify_container() -> None:
     if _container_verified:
         return
     try:
-        async with CosmosClient(_ENDPOINT, credential=_CREDENTIAL) as c:
+        async with _client() as c:
             await c.get_database_client(_DATABASE)\
                    .get_container_client(_CONTAINER).read()
         _container_verified = True
@@ -69,7 +86,7 @@ async def _upsert(doc: dict[str, Any]) -> None:
 
 
 async def _upsert_inner(doc: dict[str, Any]) -> None:
-    async with CosmosClient(_ENDPOINT, credential=_CREDENTIAL) as c:
+    async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
         await ctr.upsert_item(doc)
 
@@ -158,6 +175,25 @@ class TraceContext:
         self._doc["steps"] = [
             s for s in self._doc["steps"] if s["step_id"] != step.step_id
         ] + [step_doc]
+
+    async def record_event(
+        self,
+        stage: str,
+        status: str,
+        message: str,
+        metadata: dict | None = None
+    ) -> None:
+        if "demo_events" not in self._doc:
+            self._doc["demo_events"] = []
+        event = {
+            "timestamp": _now(),
+            "stage": stage,
+            "status": status,
+            "message": message,
+            "metadata": metadata or {}
+        }
+        self._doc["demo_events"].append(event)
+        await _upsert(self._doc)
 
     async def record_step_result(
         self,
@@ -278,6 +314,14 @@ def _serialise_mapping(mapping_result: Any | None) -> dict | None:
     except Exception:
         return None
 
+async def get_demo_events(session_id: str) -> list[dict[str, Any]]:
+    try:
+        async with _client() as c:
+            ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
+            doc = await ctr.read_item(item=session_id, partition_key=session_id)
+            return doc.get("demo_events", [])
+    except cosmos_exc.CosmosResourceNotFoundError:
+        return []
 
 def json_safe(obj: Any) -> str:
     if obj is None:

@@ -19,10 +19,24 @@ log = logging.getLogger(__name__)
 _ENDPOINT   = os.environ["COSMOS_ENDPOINT"]
 _DATABASE   = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
 _CONTAINER  = "traces"
-_CREDENTIAL = DefaultAzureCredential()
 
+_CREDENTIAL: DefaultAzureCredential | None = None
 
 def _client() -> CosmosClient:
+    app_env = os.environ.get("APP_ENV", "local").strip().lower()
+    use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
+    if app_env in {"prod", "production"} and use_local:
+        raise RuntimeError("USE_LOCAL_EMULATORS=true is forbidden when APP_ENV=prod")
+
+    if use_local:
+        return CosmosClient(
+            _ENDPOINT,
+            credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+            connection_verify=False,
+        )
+    global _CREDENTIAL
+    if _CREDENTIAL is None:
+        _CREDENTIAL = DefaultAzureCredential()
     return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
 
 
