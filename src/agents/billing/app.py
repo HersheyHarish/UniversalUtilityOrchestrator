@@ -60,23 +60,6 @@ def resolve_billing_inputs(payload: BillingPayload) -> dict[str, Any]:
     end_date = payload.end_date
     claimed_amount = payload.claimed_amount
 
-    def _latest_invoice_window(cust_id: str | int | None) -> tuple[str, str] | None:
-        if cust_id is None:
-            return None
-        cust_key = str(cust_id).upper()
-        invoices = facts_engine.data.get("invoices", {}).get(cust_key, [])
-        if not invoices:
-            return None
-        latest = max(
-            invoices,
-            key=lambda inv: (inv.get("billing_end", ""), inv.get("billing_start", "")),
-        )
-        b_start = latest.get("billing_start")
-        b_end = latest.get("billing_end")
-        if not b_start or not b_end:
-            return None
-        return (f"{b_start}T00:00:00", f"{b_end}T23:59:59")
-
     if customer_id is None:
         customer_id = extract_customer_id(payload.query)
         if customer_id is None:
@@ -90,11 +73,6 @@ def resolve_billing_inputs(payload: BillingPayload) -> dict[str, Any]:
             start_date = parsed_start.isoformat()
         if end_date is None and parsed_end is not None:
             end_date = parsed_end.isoformat()
-
-    if start_date is None or end_date is None:
-        fallback_window = _latest_invoice_window(customer_id)
-        if fallback_window:
-            start_date, end_date = fallback_window
 
     if claimed_amount is None:
         amount_patterns = [
@@ -171,29 +149,6 @@ def try_llm_summary(query: str, facts: dict[str, Any], citations: list[dict[str,
         return None
 
 
-def _fallback_summary(facts: dict[str, Any], citations: list[dict[str, Any]]) -> str:
-    """Deterministic summary used when local LLM is unavailable."""
-    customer_id = facts.get("customer_id", "unknown customer")
-    amount = facts.get("amount_in_window", facts.get("invoice_total_for_relevant_periods"))
-    invoices = facts.get("relevant_invoices", [])
-    if invoices:
-        period_text = f"{invoices[0].get('billing_start', 'unknown')} to {invoices[-1].get('billing_end', 'unknown')}"
-    else:
-        period = facts.get("billing_window", {})
-        period_text = f"{period.get('start', 'unknown')} to {period.get('end', 'unknown')}"
-    top_items = facts.get("line_items", [])[:3]
-    top_lines = ", ".join(
-        f"{item.get('description', 'charge')} (${item.get('amount', 0)})"
-        for item in top_items
-    ) or "No line-item details available."
-    policy_topics = ", ".join(c.get("metadata", {}).get("topic", "") for c in citations[:2] if c.get("metadata"))
-    policy_note = f" Relevant policy topics: {policy_topics}." if policy_topics else ""
-    return (
-        f"For {customer_id}, billing total for {period_text} is ${amount}. "
-        f"Top line items: {top_lines}.{policy_note}"
-    )
-
-
 def handle_billing_request(payload: BillingPayload) -> dict[str, Any]:
     """Main request pipeline for the standalone billing endpoint."""
     resolved = resolve_billing_inputs(payload)
@@ -211,7 +166,7 @@ def handle_billing_request(payload: BillingPayload) -> dict[str, Any]:
 
     answer = try_llm_summary(payload.query, facts, citations)
     if not answer:
-        answer = _fallback_summary(facts, citations)
+        raise HTTPException(status_code=500, detail="LLM failed to generate a summary.")
 
     response = {
         "agent": "billing_agent",
