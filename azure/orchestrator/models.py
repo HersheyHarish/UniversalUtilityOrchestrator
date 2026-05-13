@@ -96,11 +96,14 @@ class AgentResponse(BaseModel):
 class SessionDoc(BaseModel):
     """
     Stored in the `sessions` container.
-    partition_key = session_id  (stored in the partition_key field)
+
+    init_cosmos_emulator.py defines this container with partition key path
+    /session_id — Cosmos requires that property on every document (not /partition_key).
     """
 
     id: str = Field(default_factory=_uuid)
-    partition_key: str = ""  # set to id after creation
+    partition_key: str = ""  # legacy mirror of id; kept for older docs / queries
+    session_id: str = ""  # must match id; used as the Cosmos partition key value
     user_message: str
     customer_id: str | None = None
     status: SessionStatus = SessionStatus.PLANNING
@@ -110,6 +113,8 @@ class SessionDoc(BaseModel):
     updated_at: str = Field(default_factory=_now)
 
     def model_post_init(self, __context: Any) -> None:
+        if not self.session_id:
+            self.session_id = self.id
         if not self.partition_key:
             self.partition_key = self.id
 
@@ -146,3 +151,50 @@ class ChatResponse(BaseModel):
     plan_id: str | None = None
     agents_used: list[str] = Field(default_factory=list)
     steps_completed: int = 0
+
+
+# ── Zero-click dashboard contracts ────────────────────────────────────────────
+
+
+class InsightCTA(BaseModel):
+    label: str
+    action: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class InsightItem(BaseModel):
+    id: str
+    type: str
+    severity: str
+    title: str
+    summary: str
+    evidence: list[str] = Field(default_factory=list)
+    cta: InsightCTA | None = None
+    session_id: str
+    created_at: str
+
+
+class CopilotContext(BaseModel):
+    target: str
+    explanation: str
+    confidence: float
+    drivers: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    related_programs: list[str] = Field(default_factory=list)
+
+
+class AlertAction(BaseModel):
+    label: str
+    action: str
+
+
+class AlertItem(BaseModel):
+    id: str
+    channel: str
+    title: str
+    body: str
+    severity: str
+    status: str
+    actions: list[AlertAction] = Field(default_factory=list)
+    triggered_at: str
+    session_id: str

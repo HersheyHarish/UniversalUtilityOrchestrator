@@ -26,6 +26,7 @@ def validate_runtime_contract(env: Mapping[str, str] | None = None) -> list[str]
 
     strict_default = "true" if is_prod else "false"
     strict_mode = _is_true(values.get("ORCHESTRATOR_STRICT_MODE") or strict_default)
+    demo_steps = _is_true(values.get("ORCHESTRATOR_DEMO_STEPS"))
 
     errors: list[str] = []
 
@@ -37,6 +38,9 @@ def validate_runtime_contract(env: Mapping[str, str] | None = None) -> list[str]
 
     if auth_level not in {"ANONYMOUS", "FUNCTION", "ADMIN"}:
         errors.append(f"Invalid ORCHESTRATOR_HTTP_AUTH_LEVEL '{auth_level}'")
+
+    if is_prod and demo_steps:
+        errors.append("APP_ENV=prod forbids ORCHESTRATOR_DEMO_STEPS=true")
 
     required = ["COSMOS_ENDPOINT", "AZURE_OPENAI_ENDPOINT"]
     if is_prod or strict_mode:

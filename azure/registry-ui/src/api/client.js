@@ -115,11 +115,41 @@ export const agents = {
         invocation_config: invocationConfig,
       },
     }),
+
+  importReplaceByName: async (payloads) => {
+    if (!Array.isArray(payloads)) throw new Error("payloads must be an array");
+    const existing = await req("GET", "/api/agents", { params: {} });
+    const byName = new Map((existing.agents || []).map((a) => [a.name, a.id]));
+
+    const results = [];
+    for (const payload of payloads) {
+      const id = byName.get(payload.name);
+      try {
+        if (id) {
+          await req("PUT", `/api/agents/${id}`, { body: payload });
+          results.push({ name: payload.name, action: "updated", ok: true });
+        } else {
+          await req("POST", "/api/agents", { body: payload });
+          results.push({ name: payload.name, action: "created", ok: true });
+        }
+      } catch (error) {
+        results.push({ name: payload.name, action: id ? "updated" : "created", ok: false, error: error.message });
+      }
+    }
+    return results;
+  },
 };
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 export const registry = {
-  stats:        () => req("GET", "/api/agents/stats"),
+  stats: async () => {
+    try {
+      return await req("GET", "/api/registry/stats");
+    } catch (_err) {
+      // Backward-compat fallback for older backends.
+      return req("GET", "/api/agents/stats");
+    }
+  },
   capabilities: () => req("GET", "/api/agents/capabilities"),
 
   export: async () => {
@@ -134,4 +164,16 @@ export const registry = {
     link.click();
     URL.revokeObjectURL(link.href);
   },
+};
+
+// ── Observability / traces ────────────────────────────────────────────────────
+export const observability = {
+  metrics:      (sinceHours = 24)                => req("GET", "/api/observability/metrics",        { params: { since_hours: sinceHours } }),
+  agentMetrics: (sinceHours = 24)                => req("GET", "/api/observability/agent-metrics",  { params: { since_hours: sinceHours } }),
+  timeseries:   (sinceHours = 24, bucketHours=1) => req("GET", "/api/observability/timeseries",     { params: { since_hours: sinceHours, bucket_hours: bucketHours } }),
+};
+
+export const traces = {
+  list: (p = {}) => req("GET", "/api/traces", { params: p }),
+  get:  (id)     => req("GET", `/api/traces/${id}`),
 };

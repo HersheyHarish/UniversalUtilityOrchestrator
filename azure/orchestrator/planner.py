@@ -18,14 +18,16 @@ from datetime import datetime, timezone
 from typing import Any
 
 import memory
-from openai import AsyncOpenAI
+from openai import AsyncAzureOpenAI
 from secret_provider import get_secret
 
 log = logging.getLogger(__name__)
 
-_OAI_ENDPOINT = os.environ["AZURE_OPENAI_ENDPOINT"]
+# Strip any path suffixes from the endpoint — AsyncAzureOpenAI needs just the host
+_OAI_ENDPOINT_RAW = os.environ["AZURE_OPENAI_ENDPOINT"]
+_OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-_OAI_API_VER = "2024-10-21"
+_OAI_API_VER = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
 _OPENAI_SECRET = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
 
 
@@ -64,9 +66,13 @@ async def _get_secret(name: str) -> str:
     return await get_secret(name, local_env_fallback="AZURE_OPENAI_API_KEY")
 
 
-async def _openai_client() -> AsyncOpenAI:
+async def _openai_client() -> AsyncAzureOpenAI:
     api_key = await _get_secret(_OPENAI_SECRET)
-    return AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key, default_headers={"api-key": api_key})
+    return AsyncAzureOpenAI(
+        azure_endpoint=_OAI_ENDPOINT,
+        api_key=api_key,
+        api_version=_OAI_API_VER,
+    )
 
 
 def _build_manifest(agents: list[dict[str, Any]]) -> str:
@@ -168,7 +174,7 @@ async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPla
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.1,
-        max_tokens=1500,
+        max_completion_tokens=1500,
     )
 
     data = json.loads(completion.choices[0].message.content)

@@ -1,0 +1,51 @@
+.app-header {
+  height: 64px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 var(--spacing-xl);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.header-brand h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.profile-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xl);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.settings-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 8px;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.settings-btn:hover {
+  background: var(--bg-tertiary);
+}
