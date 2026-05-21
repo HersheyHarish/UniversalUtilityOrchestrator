@@ -1,0 +1,23 @@
+# Copy this file to terraform.tfvars and edit before running deploy.sh
+# Never commit terraform.tfvars — it is in .gitignore
+
+location     = "westus2"
+environment  = "dev"
+suffix       = "ua001"   # change if names collide globally
+
+model_format  = "OpenAI"
+model_name    = "gpt-4o"
+model_version = "2024-11-20"
+model_capacity_tpm  = 30
+
+cosmos_database_name        = "utility_agent_db"
+function_app_python_version = "3.11"
+
+registry_session_ttl_hours = 8
+swa_location = "westus2"
+
+
+tags = {
+  Owner      = "your-name"
+  CostCenter = "capstone"
+}
