@@ -124,9 +124,20 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
   [[ ! -f terraform.tfvars ]] && cp terraform.tfvars.example terraform.tfvars && \
     log_warn "Created terraform.tfvars from example — review and re-run, or continue."
 
+  # Capture build version and SHA
+  BUILD_SHA=$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+  BUILD_VERSION=$(git -C "$SCRIPT_DIR" describe --tags --always 2>/dev/null || echo "dev-$(date +%s)")
+  log_ok "Build version: $BUILD_VERSION"
+  log_ok "Build SHA: $BUILD_SHA"
+
   terraform init -upgrade -input=false
   terraform validate
-  terraform plan -var="environment=$ENV" -var="suffix=$SUFFIX" -out=tfplan -input=false
+  terraform plan \
+    -var="environment=$ENV" \
+    -var="suffix=$SUFFIX" \
+    -var="build_version=$BUILD_VERSION" \
+    -var="build_sha=$BUILD_SHA" \
+    -out=tfplan -input=false
   terraform apply tfplan
   rm -f tfplan
   log_ok "Infrastructure provisioned."

@@ -77,3 +77,14 @@ variable "swa_location" {
   type    = string
   default = "eastus2"
 }
+
+variable "build_version" {
+  description = "Build version number"
+  type        = string
+  default     = "dev"
+}
+
+variable "build_sha" {
+  description = "Git commit SHA"
+  type        = string
+}
