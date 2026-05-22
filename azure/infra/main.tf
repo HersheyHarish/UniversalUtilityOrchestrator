@@ -102,6 +102,7 @@ module "orchestrator" {
     AZURE_OPENAI_DEPLOYMENT     = var.model_name
     KEY_VAULT_URL               = module.key_vault.vault_uri
     OPENAI_SECRET_NAME          = "openai-key"
+    APP_ENV                     = "prod"
     AGENT_TIMEOUT_SECS          = "45"
     AGENT_MAX_RETRIES           = "2"
   }
@@ -143,6 +144,7 @@ module "registry" {
     COSMOS_ENDPOINT    = module.cosmos_db.endpoint
     COSMOS_DATABASE    = var.cosmos_database_name
     KEY_VAULT_URL      = module.key_vault.vault_uri
+    APP_ENV            = "prod"
     SESSION_TTL_HOURS  = tostring(var.registry_session_ttl_hours)
   }
 }
