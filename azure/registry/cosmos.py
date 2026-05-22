@@ -1,18 +1,4 @@
-"""
-cosmos.py — Cosmos DB data layer for the Agent Registry.
-
-Handles two containers:
-  - agents          : partition_key = "agents"  (all registry docs)
-  - admin_sessions  : partition_key = token id  (one session per partition)
-
-Security:
-  - DefaultAzureCredential (Managed Identity in Azure, CLI locally).
-  - Single module-level credential to prevent aiohttp session leaks.
-  - MSI requires "Cosmos DB Built-in Data Contributor" role on the account.
-"""
-
 from __future__ import annotations
-
 import logging
 import os
 from datetime import datetime, timezone
@@ -32,13 +18,9 @@ _ENDPOINT = os.environ["COSMOS_ENDPOINT"]
 _DATABASE = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
 _AGENTS_PK = "agents"
 
-# One credential instance — reused across all calls to prevent
-# aiohttp ClientSession leaks.
 _CREDENTIAL: DefaultAzureCredential | None = None
 
-
 # ── Client factory ────────────────────────────────────────────────────────────
-
 
 def _client() -> CosmosClient:
     app_env = os.environ.get("APP_ENV", "local").strip().lower()
@@ -57,9 +39,7 @@ def _client() -> CosmosClient:
         _CREDENTIAL = DefaultAzureCredential()
     return CosmosClient(_ENDPOINT, credential=_CREDENTIAL)
 
-
 # ── Generic helpers ───────────────────────────────────────────────────────────
-
 
 async def _upsert(container_name: str, doc: dict[str, Any]) -> dict[str, Any]:
     doc["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -93,11 +73,6 @@ async def _query(
     params: list[dict] | None = None,
     pk: str | None = None,
 ) -> list[dict[str, Any]]:
-    """
-    Execute a SQL query.
-    azure-cosmos 4.x removed enable_cross_partition_query —
-    cross-partition queries run automatically when partition_key is omitted.
-    """
     async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(container_name)
         kwargs: dict[str, Any] = {
@@ -108,9 +83,7 @@ async def _query(
             kwargs["partition_key"] = pk
         return [item async for item in ctr.query_items(**kwargs)]
 
-
 # ── Agents ────────────────────────────────────────────────────────────────────
-
 
 async def agent_get(agent_id: str) -> dict[str, Any] | None:
     return await _read("agents", agent_id, _AGENTS_PK)
@@ -175,16 +148,6 @@ async def agent_upsert(doc: dict[str, Any]) -> dict[str, Any]:
     return await _upsert("agents", doc)
 
 
-async def agent_soft_delete(agent_id: str) -> dict[str, Any] | None:
-    doc = await agent_get(agent_id)
-    if not doc:
-        return None
-    doc["status"] = "inactive"
-    doc.setdefault("metadata", {})
-    doc["metadata"]["deleted_at"] = datetime.now(timezone.utc).isoformat()
-    return await _upsert("agents", doc)
-
-
 async def agent_hard_delete(agent_id: str) -> bool:
     return await _delete("agents", agent_id, _AGENTS_PK)
 
@@ -225,13 +188,6 @@ async def agent_export_all() -> list[dict[str, Any]]:
 
 
 async def session_create(doc: dict[str, Any]) -> dict[str, Any]:
-    """
-    Insert a new session document.
-    The doc must have:
-      id            : the session token (UUID)
-      partition_key : same as id
-      ttl           : seconds until Cosmos auto-deletes
-    """
     async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client("admin_sessions")
         return await ctr.upsert_item(doc)

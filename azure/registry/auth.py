@@ -1,25 +1,4 @@
-"""
-auth.py — Admin authentication for the Agent Registry API.
-
-Credentials are stored in Key Vault (never in code or env vars):
-  - admin-username  : plain-text username
-  - admin-password  : bcrypt hash of the password
-
-Generate a hash once with:
-  python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpass', bcrypt.gensalt()).decode())"
-
-Then store it:
-  az keyvault secret set --vault-name <KV> --name admin-password --value '<hash>'
-
-Session lifecycle:
-  1. POST /api/auth/login  → validate credentials → create session UUID in Cosmos
-  2. Every protected route calls auth.require_session(req) → validates token from header
-  3. POST /api/auth/logout → deletes session from Cosmos immediately
-  4. Sessions auto-expire after SESSION_TTL_HOURS via Cosmos TTL (no cron needed)
-"""
-
 from __future__ import annotations
-
 import logging
 import os
 import uuid
@@ -45,7 +24,6 @@ _secret_cache: dict[str, str] = {}
 
 
 async def _get_secret(name: str) -> str:
-    """Fetch a secret from Key Vault, caching it for the lifetime of this instance."""
     app_env = os.environ.get("APP_ENV", "local").strip().lower()
     use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
     if app_env in {"prod", "production"} and use_local:
@@ -72,11 +50,6 @@ async def _get_secret(name: str) -> str:
 
 
 async def login(username: str, password: str) -> LoginResponse | None:
-    """
-    Validate username + password against Key Vault secrets.
-    On success: creates a session in Cosmos and returns LoginResponse.
-    On failure: returns None (caller should return 401).
-    """
     if not username or not password:
         return None
 
@@ -111,11 +84,11 @@ async def login(username: str, password: str) -> LoginResponse | None:
 
     session_doc = {
         "id": token,
-        "partition_key": token,  # each session is its own partition
+        "partition_key": token,
         "username": username,
         "created_at": now.isoformat(),
         "expires_at": expires.isoformat(),
-        "ttl": _SESSION_TTL_H * 3600,  # Cosmos auto-deletes after this
+        "ttl": _SESSION_TTL_H * 3600,
     }
 
     await cosmos.session_create(session_doc)
@@ -128,10 +101,6 @@ async def login(username: str, password: str) -> LoginResponse | None:
 
 
 async def validate(token: str) -> VerifyResponse:
-    """
-    Check that the token exists in Cosmos and has not expired.
-    Returns VerifyResponse(valid=True, username=...) or VerifyResponse(valid=False).
-    """
     if not token:
         return VerifyResponse(valid=False)
 
@@ -139,10 +108,8 @@ async def validate(token: str) -> VerifyResponse:
     if not doc:
         return VerifyResponse(valid=False)
 
-    # Belt-and-suspenders expiry check even though Cosmos TTL handles deletion
     try:
         expires = datetime.fromisoformat(doc["expires_at"])
-        # Make both offset-aware for comparison
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) > expires:
@@ -155,6 +122,5 @@ async def validate(token: str) -> VerifyResponse:
 
 
 async def logout(token: str) -> None:
-    """Immediately invalidate a session by removing it from Cosmos."""
     if token:
         await cosmos.session_delete(token)
