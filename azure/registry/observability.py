@@ -1,9 +1,3 @@
-"""
-observability.py — Trace queries and metrics aggregation for the registry API.
-
-Reads from the `traces` Cosmos container written by the orchestrator's trace_writer.
-All queries are cross-partition (traces partitioned by session_id).
-"""
 from __future__ import annotations
 import logging
 import os
@@ -41,7 +35,6 @@ def _client() -> CosmosClient:
 
 
 async def _query(sql: str, params: list[dict] | None = None) -> list[dict[str, Any]]:
-    """Cross-partition query on the traces container."""
     async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(_CONTAINER)
         return [
@@ -69,13 +62,10 @@ async def _get_one(session_id: str) -> dict[str, Any] | None:
 async def list_traces(
     status:      str | None = None,
     agent_name:  str | None = None,
+    trigger_type: str | None = None,
     since_hours: int        = 24,
     limit:       int        = 50,
 ) -> list[dict[str, Any]]:
-    """
-    Return recent traces with lightweight summary fields (no step payloads).
-    since_hours: look back this many hours (default 24, max 720 = 30 days)
-    """
     since_hours = min(since_hours, 720)
     since_iso   = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
 
@@ -86,7 +76,10 @@ async def list_traces(
         conditions.append("c.status = @status")
         params.append({"name": "@status", "value": status})
 
-    # Filter by agent name: check if any step used that agent
+    if trigger_type:
+        conditions.append("c.trigger_type = @trigger_type")
+        params.append({"name": "@trigger_type", "value": trigger_type})
+
     if agent_name:
         conditions.append(
             "EXISTS(SELECT VALUE s FROM s IN c.steps WHERE s.agent_name = @agent)"
@@ -112,7 +105,6 @@ async def list_traces(
 # =============================================================================
 
 async def get_trace(session_id: str) -> dict[str, Any] | None:
-    """Return the full trace document including all step inputs/outputs."""
     return await _get_one(session_id)
 
 
@@ -121,9 +113,6 @@ async def get_trace(session_id: str) -> dict[str, Any] | None:
 # =============================================================================
 
 async def get_metrics(since_hours: int = 24) -> dict[str, Any]:
-    """
-    Overall system metrics for the metrics dashboard.
-    """
     since_hours = min(since_hours, 720)
     since_iso   = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
 
@@ -175,9 +164,6 @@ async def get_metrics(since_hours: int = 24) -> dict[str, Any]:
 
 
 async def get_agent_metrics(since_hours: int = 24) -> list[dict[str, Any]]:
-    """
-    Per-agent metrics: invocations, avg latency, success rate, error rate.
-    """
     since_hours = min(since_hours, 720)
     since_iso   = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
 
@@ -230,17 +216,13 @@ async def get_agent_metrics(since_hours: int = 24) -> list[dict[str, Any]]:
             "success_rate":   round(d["completed"] / invoc * 100, 1) if invoc else 0.0,
             "avg_latency_ms": avg_ms,
             "p95_latency_ms": p95_ms,
-            "recent_errors":  d["errors"][-3:],  # last 3 errors
+            "recent_errors":  d["errors"][-3:],
         })
 
     return sorted(result, key=lambda x: x["invocations"], reverse=True)
 
 
 async def get_time_series(since_hours: int = 24, bucket_hours: int = 1) -> list[dict[str, Any]]:
-    """
-    Requests per time bucket for the trend chart.
-    Returns list of { bucket_start, total, completed, failed } dicts.
-    """
     since_hours = min(since_hours, 720)
     since_iso   = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
 
@@ -255,7 +237,6 @@ async def get_time_series(since_hours: int = 24, bucket_hours: int = 1) -> list[
             ts = datetime.fromisoformat(row["started_at"])
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
-            # Floor to bucket boundary
             floored = ts.replace(minute=0, second=0, microsecond=0)
             if bucket_hours > 1:
                 hour_offset = (floored.hour // bucket_hours) * bucket_hours

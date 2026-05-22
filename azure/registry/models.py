@@ -1,33 +1,3 @@
-"""
-models.py — Pydantic models for the Agent Registry API.
-
-New in this version:
-  HealthCheckConfig
-    - check_type: http | tcp | none
-    - health_check_url: optional custom URL (derived from endpoint_url when blank)
-    - expected_http_status: default 200
-    - http_timeout_seconds: default 10
-    - tcp_port: derived from endpoint_url when blank
-    - tcp_timeout_seconds: default 5
-
-  InvocationConfig
-    - http_method: default POST
-    - content_type: default application/json
-    - body_template: dict[str, str|dict] — maps field names to template expressions
-        Supported template tokens: {task}, {session_id}, {customer_id}, {context}
-        Example: {"message": "{task}", "user": "{customer_id}"}
-        When empty the orchestrator uses the legacy AgentRequest schema.
-    - response_result_path: dot-notation path into the JSON response
-        Example: "result" → resp["result"]
-                 "data.output.text" → resp["data"]["output"]["text"]
-        When empty the orchestrator falls back to resp["result"].
-    - extra_static_headers: non-auth headers always sent (e.g. Accept, X-Api-Version)
-    - timeout_seconds: per-agent override (0 = use global default)
-    - max_retries: per-agent override (-1 = use global default)
-
-  AgentDoc gains health_check_config and invocation_config fields.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -45,11 +15,60 @@ def _now() -> str:
 def _uuid() -> str:
     return str(uuid.uuid4())
 
+# =============================================================================
+# Field type enum
+# =============================================================================
+
+class FieldType(str, Enum):
+    STRING  = "string"
+    NUMBER  = "number"
+    BOOLEAN = "boolean"
+    ARRAY   = "array"
+    OBJECT  = "object"
+
+# =============================================================================
+# RequestSchemaField
+# =============================================================================
+
+class RequestSchemaField(BaseModel):
+    name:          str
+    description:   str
+    required:      bool        = True
+    field_type:    FieldType   = FieldType.STRING
+    default:       Any | None  = None
+    nested_fields: list["RequestSchemaField"] = Field(default_factory=list)
+
+    @field_validator("name")
+    @classmethod
+    def name_valid(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("field name must not be empty")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def desc_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("field description must not be empty")
+        return v
+
+
+# Rebuild for forward ref
+RequestSchemaField.model_rebuild()
+
+# =============================================================================
+# RequestSchema  (container stored in InvocationConfig)
+# =============================================================================
+
+class RequestSchema(BaseModel):
+    fields:      list[RequestSchemaField] = Field(default_factory=list)
+    strict:      bool                     = True
+    json_schema: dict[str, Any] | None    = None
 
 # =============================================================================
 # Auth enumerations (unchanged)
 # =============================================================================
-
 
 class AuthType(str, Enum):
     NONE = "none"
@@ -82,29 +101,13 @@ class HealthCheckType(str, Enum):
 
 
 class HealthCheckConfig(BaseModel):
-    """
-    Configures how the registry and orchestrator determine whether an agent is alive.
-
-    If health_check_url is blank:
-      - For HTTP checks: derived as <endpoint_url base>/api/health
-      - For TCP checks: host and port are parsed from endpoint_url
-
-    Leave check_type as "http" for Azure Functions, FastAPI, and similar.
-    Use "tcp" for raw TCP services (gRPC, sockets) with no HTTP interface.
-    Use "none" for agents that don't expose any reachability signal.
-    """
-
     check_type: HealthCheckType = HealthCheckType.HTTP
 
-    # Optional: explicit health check URL.
-    # Blank → auto-derived from endpoint_url by the registry probe logic.
     health_check_url: str | None = None
 
-    # HTTP check settings
     expected_http_status: int = 200
     http_timeout_seconds: int = 10
 
-    # TCP check settings (port derived from endpoint_url when 0)
     tcp_port: int = 0
     tcp_timeout_seconds: int = 5
 
@@ -115,62 +118,23 @@ class HealthCheckConfig(BaseModel):
 
 
 class InvocationConfig(BaseModel):
-    """
-    Configures how the orchestrator invokes this agent.
+    # ── Schema-driven (new) ───────────────────────────────────────────────────
+    request_schema:        RequestSchema       = Field(default_factory=RequestSchema)
 
-    body_template
-    ─────────────
-    A dict mapping request body field names to template strings.
-    Supported tokens (replaced at invocation time):
-        {task}        — the agent's task string from the plan
-        {session_id}  — the current orchestrator session ID
-        {customer_id} — the customer ID (may be empty string)
-        {context}     — JSON-encoded dict of prior step outputs
-        {step_N}      — output of plan step N (e.g. {step_1})
+    # ── Template (legacy fallback — do NOT remove) ────────────────────────────
+    body_template:         dict[str, Any]      = Field(default_factory=dict)
 
-    Examples:
-        LangChain agent:  {"input": "{task}"}
-        OpenAI-style:     {"messages": [{"role": "user", "content": "{task}"}]}
-        Legacy default:   {"task": "{task}", "session_id": "{session_id}", ...}
+    # ── Unchanged transport settings ──────────────────────────────────────────
+    http_method:           str                 = "POST"
+    content_type:          str                 = "application/json"
+    response_result_path:  str                 = ""
+    extra_static_headers:  dict[str, str]      = Field(default_factory=dict)
+    timeout_seconds:       int                 = 0
+    max_retries:           int                 = -1
 
-    Nested values and lists are supported — the template is rendered by
-    _render_body() in executor.py which recurses into dicts and lists.
-
-    When body_template is empty ({}) the orchestrator uses the legacy
-    AgentRequest Pydantic model (task, session_id, customer_id, context).
-
-    response_result_path
-    ────────────────────
-    Dot-notation path used to extract the agent's result string from the JSON
-    response. Examples:
-        "result"            → resp["result"]
-        "data.text"         → resp["data"]["text"]
-        "choices.0.message.content"  → resp["choices"][0]["message"]["content"]
-
-    When empty, the executor falls back to resp.get("result", str(resp)).
-
-    extra_static_headers
-    ────────────────────
-    Non-auth headers always added to every request to this agent.
-    Examples: {"Accept": "application/json", "X-Api-Version": "2"}
-    Auth headers come from auth_injector — do NOT duplicate them here.
-    """
-
-    http_method: str = "POST"
-    content_type: str = "application/json"
-
-    # Field mapping: leave empty to use the legacy AgentRequest schema
-    body_template: dict[str, Any] = Field(default_factory=dict)
-
-    # Dot-notation extraction path for the result: leave empty for resp["result"]
-    response_result_path: str = ""
-
-    # Non-auth static headers (e.g. Accept, X-Api-Version)
-    extra_static_headers: dict[str, str] = Field(default_factory=dict)
-
-    # Per-agent overrides: 0 / -1 = use orchestrator global defaults
-    timeout_seconds: int = 0
-    max_retries: int = -1
+    def uses_schema(self) -> bool:
+        """True when schema-driven mode is active."""
+        return bool(self.request_schema.fields)
 
 
 # =============================================================================
@@ -213,17 +177,14 @@ class AuthSecrets(BaseModel):
     oauth2_client_secret_value: str | None = None
     custom_secret_values: list[str | None] = Field(default_factory=list)
 
-
 # =============================================================================
 # Agent status & utility enumerations
 # =============================================================================
-
 
 class AgentStatus(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     DEGRADED = "degraded"
-
 
 class UtilityType(str, Enum):
     ELECTRIC = "electric"
@@ -231,18 +192,15 @@ class UtilityType(str, Enum):
     WATER = "water"
     MULTI = "multi"
 
-
 class Capability(BaseModel):
     name: str
     description: str
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
 
-
 # =============================================================================
 # Core document
 # =============================================================================
-
 
 class AgentDoc(BaseModel):
     id: str = Field(default_factory=_uuid)
@@ -257,15 +215,12 @@ class AgentDoc(BaseModel):
     capabilities: list[Capability] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # Auth
     auth_config: AuthConfig = Field(default_factory=AuthConfig)
     api_key_secret_name: str | None = None  # legacy
 
-    # NEW: Health check and invocation configs
     health_check_config: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
     invocation_config: InvocationConfig = Field(default_factory=InvocationConfig)
 
-    # Health tracking (populated by ping operations)
     last_health_check_at: str | None = None
     last_health_status: str | None = None
     last_health_ms: int | None = None
@@ -288,11 +243,9 @@ class AgentDoc(BaseModel):
             raise ValueError("endpoint_url must start with https:// or http://")
         return v.rstrip("/")
 
-
 # =============================================================================
 # Request bodies
 # =============================================================================
-
 
 class AgentCreate(BaseModel):
     name: str
@@ -318,8 +271,6 @@ class AgentCreate(BaseModel):
 
 
 class AgentUpdate(BaseModel):
-    """PATCH — all fields optional."""
-
     description: str | None = None
     endpoint_url: str | None = None
     version: str | None = None
@@ -335,8 +286,6 @@ class AgentUpdate(BaseModel):
 
 
 class AgentReplace(BaseModel):
-    """PUT — full replacement."""
-
     name: str
     description: str
     endpoint_url: str
@@ -351,11 +300,9 @@ class AgentReplace(BaseModel):
     health_check_config: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
     invocation_config: InvocationConfig = Field(default_factory=InvocationConfig)
 
-
 class StatusPatch(BaseModel):
     status: AgentStatus
     reason: str | None = None
-
 
 class CapabilityAdd(BaseModel):
     name: str
@@ -363,51 +310,43 @@ class CapabilityAdd(BaseModel):
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
 
-
 # =============================================================================
 # Admin UI auth models
 # =============================================================================
 
-
 class LoginRequest(BaseModel):
     username: str
     password: str
-
 
 class LoginResponse(BaseModel):
     token: str
     expires_at: str
     username: str
 
-
 class VerifyResponse(BaseModel):
     valid: bool
     username: str | None = None
-
 
 # =============================================================================
 # Response models
 # =============================================================================
 
-
 class HealthCheckResult(BaseModel):
     agent_id: str
     agent_name: str
     endpoint: str
-    status: str  # healthy | unhealthy | unreachable
+    status: str
     check_type: str = "http"
     http_code: int | None = None
     response_ms: int | None = None
     checked_at: str = Field(default_factory=_now)
     error: str | None = None
 
-
 class PingAllResponse(BaseModel):
     checked: int
     healthy: int
     degraded: int
     results: list[HealthCheckResult]
-
 
 class RegistryStats(BaseModel):
     total: int
@@ -419,7 +358,6 @@ class RegistryStats(BaseModel):
     unique_tags: list[str]
     last_registered_at: str | None
     last_health_check_at: str | None
-
 
 class CapabilityIndex(BaseModel):
     capability_name: str

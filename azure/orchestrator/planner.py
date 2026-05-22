@@ -1,23 +1,14 @@
-"""
-planner.py — Planning agent. Updated PlanStep to carry invocation_config
-and health_check_config from the registry entry.
-
-The LLM never sees invocation_config, health_check_config, or auth_config.
-These are enriched from the registry after the LLM produces its plan JSON.
-"""
-
 from __future__ import annotations
-
 import json
 import logging
 import os
 import uuid
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+
 from typing import Any
 
 import memory
+from models import PlanStep, ExecutionPlan
 from openai import AsyncAzureOpenAI
 from secret_provider import get_secret
 
@@ -29,38 +20,6 @@ _OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 _OAI_API_VER = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
 _OPENAI_SECRET = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
-
-
-@dataclass
-class PlanStep:
-    step_id: int
-    agent_name: str
-    agent_url: str
-    task: str
-    depends_on: list[int] = field(default_factory=list)
-    context_note: str = ""
-    # Auth — from registry, never from LLM
-    auth_config: dict[str, Any] = field(default_factory=dict)
-    api_key_secret_name: str | None = None  # legacy
-    # Invocation — how to build the request body and extract the result
-    invocation_config: dict[str, Any] = field(default_factory=dict)
-    # Health check — carried for diagnostics / future per-step health assertions
-    health_check_config: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ExecutionPlan:
-    plan_id: str
-    user_intent: str
-    steps: list[PlanStep]
-    synthesis_instruction: str
-    created_at: str
-
-    def model_dump(self) -> dict:
-        import dataclasses
-
-        return dataclasses.asdict(self)
-
 
 async def _get_secret(name: str) -> str:
     return await get_secret(name, local_env_fallback="AZURE_OPENAI_API_KEY")
@@ -74,9 +33,7 @@ async def _openai_client() -> AsyncAzureOpenAI:
         api_version=_OAI_API_VER,
     )
 
-
 def _build_manifest(agents: list[dict[str, Any]]) -> str:
-    """LLM-safe manifest — no auth, no invocation details, no endpoints."""
     lines = []
     for a in agents:
         caps = "\n".join(f"    - {c['name']}: {c['description']}" for c in a.get("capabilities", []))
@@ -84,7 +41,7 @@ def _build_manifest(agents: list[dict[str, Any]]) -> str:
     return "\n\n".join(lines)
 
 
-_SYSTEM = """You are a task-planning agent for a utility company support platform.
+_REACTIVE_SYSTEM = """You are a task-planning agent for a utility company support platform.
 Given a user message and a list of available specialist agents, produce a
 sequential execution plan as valid JSON.
 
@@ -92,23 +49,52 @@ Rules:
 - Include ONLY agents genuinely needed to answer the user's request.
 - steps must be ordered so every step's dependencies have lower step_id values.
 - Each step's task must be a precise, self-contained instruction for that agent.
-- synthesis_instruction tells the synthesizer how to combine outputs.
+- synthesis_instruction tells the synthesizer how to combine outputs into a
+  single helpful answer for the customer.
 
 Return ONLY a JSON object (no markdown, no prose):
 {
-  "user_intent": "<one-sentence summary>",
+  "user_intent": "<one-sentence summary of what the user wants>",
   "steps": [
     {
       "step_id": <int starting at 1>,
       "agent_name": "<exact name from the manifest>",
-      "task": "<precise task for this agent>",
+      "task": "<precise task>",
       "depends_on": [<step_id ints>],
-      "context_note": "<optional extra context>"
+      "context_note": "<optional>"
     }
   ],
-  "synthesis_instruction": "<how to combine all outputs>"
+  "synthesis_instruction": "<how to combine all outputs into one answer>"
 }"""
 
+
+_PROACTIVE_SYSTEM = """You are a task-planning agent for a utility company proactive notification system.
+A remote agent has detected an event that may affect a customer.
+Your job is to plan which specialist agents should gather relevant data to ENRICH
+this notification before it is delivered to the customer.
+
+Rules:
+- Include ONLY agents that can provide meaningful context for this specific event.
+- Do not include agents unrelated to the event type.
+- steps must be ordered so dependencies have lower step_id values.
+- Each step's task must be specific: include the event type and customer ID.
+- synthesis_instruction tells the synthesizer how to write a clear, concise,
+  actionable notification for the customer (max 150 words, second person).
+
+Return ONLY a JSON object (no markdown, no prose):
+{
+  "user_intent": "<one-sentence description of the enrichment goal>",
+  "steps": [
+    {
+      "step_id": <int starting at 1>,
+      "agent_name": "<exact name from the manifest>",
+      "task": "<precise data-gathering task related to the event>",
+      "depends_on": [<step_id ints>],
+      "context_note": "<optional>"
+    }
+  ],
+  "synthesis_instruction": "<how to write the enriched customer notification>"
+}"""
 
 def _has_cycle(steps: list[PlanStep]) -> bool:
     graph = {s.step_id: [] for s in steps}
@@ -151,7 +137,7 @@ def _topological_order(steps: list[PlanStep]) -> list[PlanStep]:
     return result
 
 
-async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPlan:
+async def build_plan(message: str, customer_id: str | None, trigger_type: str = "reactive", chat_history: list[dict] | None = None, args: dict | None = None) -> ExecutionPlan:
     agents = await memory.get_active_agents()
     if not agents:
         raise RuntimeError("No active agents found in registry")
@@ -159,18 +145,47 @@ async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPla
     agent_by_name = {a["name"]: a for a in agents}
     manifest = _build_manifest(agents)
 
-    user_prompt = (
-        f"User message: {user_message}\n"
-        + (f"Customer ID: {customer_id}\n" if customer_id else "")
-        + f"\nAvailable agents:\n{manifest}"
+    system_prompt = (
+        _PROACTIVE_SYSTEM if trigger_type == "proactive" else _REACTIVE_SYSTEM
     )
+
+    user_prompt_parts = []
+
+    if customer_id:
+        user_prompt_parts.append(f"Customer ID: {customer_id}")
+
+    history = chat_history
+
+    if history:
+        historical_messages = []
+        for turn in history:
+            if turn["role"] == "user":
+                historical_messages.append({
+                    "role": "user", "content": turn["content"],
+                })
+            else:
+                historical_messages.append({
+                    "role": "system", "content": turn["content"],
+                })
+
+        user_prompt_parts.append(f"Historical Messages: {"\n".join(f'{m["role"]}: {m["content"]}' for m in historical_messages)}")
+    
+    user_prompt_parts.append(f"Request: {message}")
+    user_prompt_parts.append(f"Available agents:\n{manifest}")
+
+    if trigger_type == "proactive":
+        user_prompt_parts.append(f"Source Agent: {args.get('agent_name')}")
+        user_prompt_parts.append(f"Event_type: {args.get('event_type')}")
+        user_prompt_parts.append(f"Severity: {args.get('severity')}")
+
+    user_prompt = "\n".join(user_prompt_parts)
 
     client = await _openai_client()
     completion = await client.chat.completions.create(
         model=_OAI_DEPLOYMENT,
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": _SYSTEM},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.1,
@@ -195,7 +210,6 @@ async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPla
                 task=s["task"],
                 depends_on=s.get("depends_on", []),
                 context_note=s.get("context_note", ""),
-                # Server-side enrichment — never from LLM
                 auth_config=entry.get("auth_config") or {},
                 api_key_secret_name=entry.get("api_key_secret_name"),
                 invocation_config=entry.get("invocation_config") or {},
@@ -209,12 +223,10 @@ async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPla
         raise RuntimeError("Planner produced a circular execution plan — rejecting")
 
     return ExecutionPlan(
-        plan_id=str(uuid.uuid4()),
-        user_intent=data.get("user_intent", user_message[:80]),
+        user_intent=data.get("user_intent", message[:80]),
         steps=_topological_order(steps),
         synthesis_instruction=data.get(
             "synthesis_instruction",
             "Combine all agent outputs into one helpful response.",
-        ),
-        created_at=datetime.now(timezone.utc).isoformat(),
+        )    
     )
