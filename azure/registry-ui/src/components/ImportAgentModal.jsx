@@ -3,24 +3,12 @@ import { agents as agentsApi } from "../api/client.js";
 import { Spinner, Alert } from "./Primitives.jsx";
 import { IcUpload, IcTrash } from "./Icons.jsx";
 
-// ── Cosmos / registry-internal fields that must NOT be sent to AgentCreate ──
-const STRIP_FIELDS = new Set([
-  "id", "partition_key", "_rid", "_self", "_etag", "_attachments", "_ts",
-  "created_at", "updated_at",
-  "last_health_check_at", "last_health_status", "last_health_ms",
-  "ttl",
-]);
-
-// Fields the AgentCreate model accepts
 const AGENT_CREATE_FIELDS = new Set([
   "name", "description", "endpoint_url", "api_key_secret_name",
   "status", "version", "utility_types", "tags", "capabilities", "metadata",
+  "invocation_config", "auth_config", "health_check_config",
 ]);
 
-/**
- * Strip Cosmos-specific fields and return only what AgentCreate accepts.
- * Tolerant: unknown extra fields are silently dropped (registry validates).
- */
 function toAgentCreate(raw) {
   const out = {};
   for (const key of AGENT_CREATE_FIELDS) {
@@ -29,14 +17,6 @@ function toAgentCreate(raw) {
   return out;
 }
 
-/**
- * Parse the textarea content.
- * Returns { agents: [...], error: null } or { agents: [], error: "message" }.
- * Accepts:
- *   - A single agent object {}
- *   - An array of agent objects [{}]
- *   - The export envelope { agents: [...] } produced by GET /api/agents/export
- */
 function parseInput(text) {
   if (!text.trim()) return { agents: [], error: null };
 
@@ -47,14 +27,12 @@ function parseInput(text) {
     return { agents: [], error: `Invalid JSON: ${e.message}` };
   }
 
-  // Unwrap export envelope { agents: [...] }
   if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.agents)) {
     parsed = parsed.agents;
   }
 
   const list = Array.isArray(parsed) ? parsed : [parsed];
 
-  // Basic sanity check on each entry
   for (const entry of list) {
     if (!entry || typeof entry !== "object") {
       return { agents: [], error: "Each entry must be a JSON object." };
@@ -136,12 +114,12 @@ function ResultRow({ name, ok, message }) {
 export default function ImportAgentModal({ onImported, onCancel }) {
   const fileInputRef = useRef(null);
 
-  const [fileName,    setFileName]    = useState("");
-  const [jsonText,    setJsonText]    = useState("");
+  const [fileName, setFileName] = useState("");
+  const [jsonText, setJsonText] = useState("");
   const [parseResult, setParseResult] = useState({ agents: [], error: null });
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState("");
-  const [results,     setResults]     = useState(null);  // null = not run yet
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [results, setResults] = useState(null);  // null = not run yet
 
   // ── File selection ─────────────────────────────────────────────────────────
   const handleFileSelect = (e) => {
@@ -218,7 +196,7 @@ export default function ImportAgentModal({ onImported, onCancel }) {
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const { agents, error: parseErr } = parseResult;
-  const canImport  = agents.length > 0 && !parseErr && !loading;
+  const canImport = agents.length > 0 && !parseErr && !loading;
   const hasResults = results !== null;
 
   // ── Status line below the textarea ────────────────────────────────────────
@@ -226,15 +204,19 @@ export default function ImportAgentModal({ onImported, onCancel }) {
   if (jsonText.trim()) {
     if (parseErr) {
       statusLine = (
-        <div style={{ fontSize: 12, color: "var(--c-danger-text)",
-          display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{
+          fontSize: 12, color: "var(--c-danger-text)",
+          display: "flex", alignItems: "center", gap: 4
+        }}>
           <span>✕</span> {parseErr}
         </div>
       );
     } else if (agents.length > 0) {
       statusLine = (
-        <div style={{ fontSize: 12, color: "#15803d",
-          display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{
+          fontSize: 12, color: "#15803d",
+          display: "flex", alignItems: "center", gap: 4
+        }}>
           <span>✓</span> Valid JSON ·{" "}
           <strong>{agents.length}</strong>{" "}
           agent{agents.length !== 1 ? "s" : ""} detected
@@ -326,8 +308,10 @@ export default function ImportAgentModal({ onImported, onCancel }) {
             <label className="form-label">
               Agent JSON
               {agents.length > 0 && !parseErr && (
-                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400,
-                  color: "var(--text-muted)" }}>
+                <span style={{
+                  marginLeft: 8, fontSize: 11, fontWeight: 400,
+                  color: "var(--text-muted)"
+                }}>
                   — editable before import
                 </span>
               )}
@@ -353,8 +337,10 @@ export default function ImportAgentModal({ onImported, onCancel }) {
               <label className="form-label">
                 Preview
                 {agents.length > 1 && (
-                  <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 400,
-                    color: "var(--text-muted)" }}>
+                  <span style={{
+                    marginLeft: 6, fontSize: 11, fontWeight: 400,
+                    color: "var(--text-muted)"
+                  }}>
                     ({agents.length} agents will be imported)
                   </span>
                 )}
@@ -364,8 +350,10 @@ export default function ImportAgentModal({ onImported, onCancel }) {
                   <AgentPreviewStrip key={i} agent={a} />
                 ))}
                 {agents.length > 5 && (
-                  <div style={{ fontSize: 12, color: "var(--text-muted)",
-                    textAlign: "center", padding: "4px 0" }}>
+                  <div style={{
+                    fontSize: 12, color: "var(--text-muted)",
+                    textAlign: "center", padding: "4px 0"
+                  }}>
                     + {agents.length - 5} more…
                   </div>
                 )}
@@ -404,8 +392,8 @@ export default function ImportAgentModal({ onImported, onCancel }) {
               {loading
                 ? <><Spinner /> Importing…</>
                 : agents.length > 1
-                ? `Import ${agents.length} agents`
-                : "Import agent"
+                  ? `Import ${agents.length} agents`
+                  : "Import agent"
               }
             </button>
           )}

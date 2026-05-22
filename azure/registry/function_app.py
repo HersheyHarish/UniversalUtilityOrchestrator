@@ -515,7 +515,7 @@ async def delete_agent(req: func.HttpRequest) -> func.HttpResponse:
         return err
     agent_id = req.route_params["agent_id"]
     try:
-        deleted = await registry.delete_agent(agent_id, hard=hard)
+        deleted = await registry.delete_agent(agent_id)
         if not deleted:
             return _err(f"Agent '{agent_id}' not found", 404)
         return _json({"message": f"Agent permanently deleted"})

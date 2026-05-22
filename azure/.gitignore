@@ -1,0 +1,89 @@
+# Environment Variables
+.env
+.env.local
+.env.*.local
+local.settings.json
+
+# Node modules and dependencies
+node_modules/
+.npm
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.venv
+venv/
+ENV/
+env/
+.venv/
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Vite
+.vite/
+coverage/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Docker
+.dockerignore
+
+# OS and Temporary files
+.DS_Store
+.AppleDouble
+.LSOverride
+*.tmp
+*.temp
+*.log
+logs/
+
+# Azure Functions
+bin/
+obj/
+.funcignore
+
+# Runtime files
+.python_version

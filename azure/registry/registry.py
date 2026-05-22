@@ -281,7 +281,7 @@ async def set_status(agent_id: str, body: StatusPatch) -> AgentDoc | None:
     saved = await cosmos.agent_upsert(raw)
     return AgentDoc(**saved)
 
-async def delete_agent(agent_id: str, hard: bool = False) -> bool:
+async def delete_agent(agent_id: str) -> bool:
     return await cosmos.agent_hard_delete(agent_id)
 
 async def add_capability(agent_id: str, body: CapabilityAdd) -> AgentDoc | None:

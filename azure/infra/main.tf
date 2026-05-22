@@ -105,6 +105,8 @@ module "orchestrator" {
     APP_ENV                     = "prod"
     AGENT_TIMEOUT_SECS          = "45"
     AGENT_MAX_RETRIES           = "2"
+    BUILD_VERSION               = var.build_version
+    BUILD_SHA                   = var.build_sha
   }
 }
 
@@ -146,6 +148,8 @@ module "registry" {
     KEY_VAULT_URL      = module.key_vault.vault_uri
     APP_ENV            = "prod"
     SESSION_TTL_HOURS  = tostring(var.registry_session_ttl_hours)
+    BUILD_VERSION      = var.build_version
+    BUILD_SHA          = var.build_sha
   }
 }
 
