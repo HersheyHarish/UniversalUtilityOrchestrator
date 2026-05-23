@@ -316,8 +316,8 @@ async def ping_agent(agent_id: str) -> HealthCheckResult | None:
     await _persist_health(raw, result)
     return result
 
-async def ping_all_active() -> PingAllResponse:
-    agents = await cosmos.agent_list(status="active")
+async def ping_all_agents() -> PingAllResponse:
+    agents = await cosmos.agent_list()
     if not agents:
         return PingAllResponse(checked=0, healthy=0, degraded=0, results=[])
 
