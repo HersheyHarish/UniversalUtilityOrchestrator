@@ -88,6 +88,7 @@ async def list_traces(
 
     sql = f"""
         SELECT c.id, c.session_id, c.user_message, c.customer_id,
+               c.trigger_type, c.proactive_meta,
                c.status, c.started_at, c.completed_at, c.total_latency_ms,
                c.agents_invoked, c.error,
                c.plan.user_intent,

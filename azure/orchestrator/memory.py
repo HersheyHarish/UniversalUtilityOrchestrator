@@ -255,7 +255,7 @@ async def get_conversation_history(session_id: str, limit: int = 10) -> list[dic
     return [
         {"role": row["role"], "content": row["content"]}
         for row in rows
-
+    ]
 
 # ── Agent registry ────────────────────────────────────────────────────────────
 

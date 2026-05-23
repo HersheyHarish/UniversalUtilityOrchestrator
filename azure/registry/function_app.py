@@ -217,7 +217,7 @@ async def ping_all(req: func.HttpRequest) -> func.HttpResponse:
     if err:
         return err
     try:
-        result = await registry.ping_all_active()
+        result = await registry.ping_all_agents()
         return _json(result.model_dump())
     except Exception as exc:
         log.exception("ping_all failed")

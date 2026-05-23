@@ -168,7 +168,8 @@ async def build_plan(message: str, customer_id: str | None, trigger_type: str = 
                     "role": "system", "content": turn["content"],
                 })
 
-        user_prompt_parts.append(f"Historical Messages: {"\n".join(f'{m["role"]}: {m["content"]}' for m in historical_messages)}")
+        historical_str = '\n'.join(f'{m["role"]}: {m["content"]}' for m in historical_messages)
+        user_prompt_parts.append(f"Historical Messages: {historical_str}")
     
     user_prompt_parts.append(f"Request: {message}")
     user_prompt_parts.append(f"Available agents:\n{manifest}")

@@ -89,8 +89,7 @@ async def _upsert_inner(doc: dict[str, Any]) -> None:
 # =============================================================================
 
 class TraceContext:
-
-    def __init__(self, session_id: str, user_message: str, customer_id: str | None, trigger_type: str = "reactive",proactive_meta: dict | None = None):
+    def __init__(self, session_id: str, user_message: str, customer_id: str | None, trigger_type: str = "reactive", proactive_meta: dict | None = None):
         self.session_id = session_id
         self._doc: dict[str, Any] = {
             "id":               session_id,
@@ -112,6 +111,7 @@ class TraceContext:
             "ttl":              _TTL_SECS,
         }
         self._step_start_times: dict[int, str] = {}
+        self._counted_step_ids: set[int] = set()
         log.info("TraceContext created for session %s", session_id)
 
     async def record_plan(self, plan: Any) -> None:
@@ -206,7 +206,9 @@ class TraceContext:
             updates["mapping_result"] = _serialise_mapping(mapping_result)
 
         self._update_step(step_id, updates)
-        self._doc["agents_invoked"] = self._doc.get("agents_invoked", 0) + 1
+        if step_id not in self._counted_step_ids:
+            self._counted_step_ids.add(step_id)
+            self._doc["agents_invoked"] = self._doc.get("agents_invoked", 0) + 1
         log.info("TraceContext: step %d completed (%dms) session %s",
                  step_id, latency, self.session_id)
         await _upsert(self._doc)

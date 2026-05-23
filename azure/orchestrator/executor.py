@@ -298,7 +298,7 @@ async def execute_plan(
             trace_ctx.record_step_start(step, body_preview)
 
         try:
-            response = await _call_agent(step, session_id, customer_id, prior_outputs)
+            response = await _call_agent(step, session_id, customer_id, prior_outputs, trace_ctx)
             results[step.step_id] = response
             prior_outputs[step.step_id] = response["result"]
 

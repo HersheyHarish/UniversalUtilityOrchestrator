@@ -18,7 +18,7 @@ try:
     import planner
     import runtime_contract
     import synthesizer
-    import trace_writer import TraceContext
+    from trace_writer import TraceContext
     from models import ChatRequest, ProactiveTriggerRequest, StandardResponse, StandardResponse, SessionDoc, SessionStatus
 except Exception as _e:
     _IMPORT_ERROR = f"{type(_e).__name__}: {_e}\n{traceback.format_exc()}"
@@ -173,6 +173,7 @@ async def _create_or_load_session(session_id: str | None, message: str, customer
     )
 
 async def _process_request(message: str, customer_id: str, trigger_type: str, session_id: str | None = None, metadata: dict | None = None, save_message_fn = None):
+    chat_history = []
     if session_id:
         try:
             chat_history = await memory.get_conversation_history(
@@ -258,7 +259,7 @@ async def _process_request(message: str, customer_id: str, trigger_type: str, se
             plan,
             session_id,
             customer_id,
-            trace=trace,
+            trace_ctx=trace,
         )
 
     except Exception as e:

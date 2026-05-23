@@ -40,14 +40,13 @@ function StatusPill({ status }) {
 }
 
 function TriggerBadge({ triggerType }) {
-  if (!triggerType) return null;
   const s = TRIGGER_STYLE[triggerType] || { bg: "#f1f5f9", color: "#334155" };
   return (
     <span style={{
       background: s.bg, color: s.color, padding: "1px 7px",
       borderRadius: 99, fontSize: 11, fontWeight: 500, whiteSpace: "nowrap"
     }}>
-      {triggerType === "proactive" ? "proactive" : triggerType}
+      {triggerType === "proactive" ? "proactive" : "reactive"}
     </span>
   );
 }
