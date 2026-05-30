@@ -164,6 +164,7 @@ class StandardResponse(BaseModel):
     plan_id:         str | None = None
     agents_used:     list[str] = Field(default_factory=list)
     steps_completed: int = 0
+    content_segments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 

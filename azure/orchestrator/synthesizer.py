@@ -1,15 +1,23 @@
+<<<<<<< HEAD
+=======
+"""
+synthesizer.py — Synthesis agent with optional token streaming.
+"""
+
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 from __future__ import annotations
 import logging
-import os
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from openai import AsyncAzureOpenAI
+from openai_client import get_chat_client, model_name_for_role
 from planner import ExecutionPlan
-from secret_provider import get_secret
 
 from models import ExecutionPlan, AgentResponse
 
 log = logging.getLogger(__name__)
 
+<<<<<<< HEAD
 _OAI_ENDPOINT_RAW = os.environ["AZURE_OPENAI_ENDPOINT"]
 _OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
@@ -22,6 +30,9 @@ async def _get_secret(name: str) -> str:
 
 
 _REACTIVE_SYSTEM = """You are a response synthesis agent for a utility company support platform.
+=======
+_SYSTEM = """You are a response synthesis agent for a utility company support platform.
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 You receive outputs from multiple specialist agents and combine them into one
 clear, empathetic, and actionable response for the customer.
 
@@ -34,12 +45,19 @@ Guidelines:
 - Be concise but complete.
 - Keep tone warm and professional.
 - End with 1-3 concrete next steps the customer can take.
+<<<<<<< HEAD
 - Do NOT mention agent names or internal agent architecture or system details.
+=======
+- Do NOT mention internal agent architecture or system details.
+- Put ASCII diagrams, tables, and box drawings inside fenced code blocks (```).
+- Preserve formatting inside code fences exactly as written.
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 """
 
 _PROACTIVE_SYSTEM = """You are a utility company notification writer.
 Combine agent-gathered data into a clear, actionable proactive notification.
 
+<<<<<<< HEAD
 Rules:
 - Lead with the key fact (what happened or requires attention).
 - State the impact on the customer in one sentence.
@@ -57,6 +75,28 @@ async def synthesize(
     trigger_type: str = "reactive",
     chat_history: list[dict] | None = None,
     args: dict | None = None
+=======
+def _step_result_text(step_payload: object) -> str:
+    if isinstance(step_payload, dict):
+        return str(step_payload.get("result") or "")
+    return str(getattr(step_payload, "result", "") or "")
+
+
+def _agent_name_for_step(plan: ExecutionPlan, step_id: int) -> str:
+    for s in plan.steps:
+        if s.step_id == step_id:
+            return s.agent_name
+    return "Agent"
+
+
+async def synthesize(
+    plan: ExecutionPlan,
+    step_results: dict[int, dict],
+    user_message: str,
+    *,
+    on_token: Callable[[str], Awaitable[None]] | None = None,
+    repair_hint: str | None = None,
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 ) -> str:
     if not step_results:
         return (
@@ -70,6 +110,7 @@ async def synthesize(
         for i, (_, r) in enumerate(sorted(step_results.items()))
     ]
 
+<<<<<<< HEAD
     if trigger_type == "proactive":
         system_prompt = _PROACTIVE_SYSTEM
         user_prompt = "\n".join(filter(None, [
@@ -94,14 +135,23 @@ async def synthesize(
             f"\nSynthesis instruction: {plan.synthesis_instruction}",
             "\nWrite the final response now.",
         ]))
-
-    api_key = await _get_secret(_OPENAI_SECRET)
-    client = AsyncAzureOpenAI(
-        azure_endpoint=_OAI_ENDPOINT,
-        api_key=api_key,
-        api_version=_OAI_API_VER,
+=======
+    synthesis_prompt = (
+        f"Original customer question: {user_message}\n\n"
+        f"Synthesis instruction: {plan.synthesis_instruction}\n\n"
+        f"Agent outputs:\n" + "\n\n".join(agent_sections)
     )
+    if repair_hint:
+        synthesis_prompt += (
+            f"\n\nIMPORTANT: The previous draft had quality issues: {repair_hint}. "
+            "Fix these while staying faithful to agent outputs only."
+        )
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 
+    client = await get_chat_client("synthesizer")
+    model = model_name_for_role("default")
+
+<<<<<<< HEAD
     completion = await client.chat.completions.create(
         model=_OAI_DEPLOYMENT,
         messages=[
@@ -111,8 +161,37 @@ async def synthesize(
         temperature=0.3,
         max_completion_tokens=1000,
     )
+=======
+    messages = [
+        {"role": "system", "content": _SYSTEM},
+        {"role": "user", "content": synthesis_prompt},
+    ]
 
-    content = completion.choices[0].message.content
+    if on_token:
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.5,
+            max_completion_tokens=1000,
+            stream=True,
+        )
+        parts: list[str] = []
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                parts.append(delta)
+                await on_token(delta)
+        content = "".join(parts)
+    else:
+        completion = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.5,
+            max_completion_tokens=1000,
+        )
+        content = completion.choices[0].message.content
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
+
     return content if isinstance(content, str) and content.strip() else (
         "I could not generate a response. Please try again or contact support."
     )

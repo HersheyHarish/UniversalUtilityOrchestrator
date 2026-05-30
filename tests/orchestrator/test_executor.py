@@ -37,6 +37,7 @@ async def test_build_body_legacy():
 
 
 @pytest.mark.asyncio
+<<<<<<< HEAD
 async def test_build_body_includes_conversation_history():
     transcript = [{"role": "user", "content": "prior"}]
     body = await _build_body(
@@ -46,6 +47,8 @@ async def test_build_body_includes_conversation_history():
 
 
 @pytest.mark.asyncio
+=======
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 async def test_build_body_template():
     inv_config = {"body_template": {"query": "{task}", "user": "{customer_id}", "previous": "{step_1}"}}
     body = await _build_body(inv_config, "my_task", "sess_1", "cust_1", {1: "out_1"}, "")

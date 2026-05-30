@@ -1,3 +1,11 @@
+<<<<<<< HEAD
+=======
+"""
+planner.py — Planning agent. Updated PlanStep to carry invocation_config
+and health_check_config from the registry entry.
+"""
+
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 from __future__ import annotations
 import json
 import logging
@@ -8,19 +16,21 @@ from collections import deque
 from typing import Any
 
 import memory
+<<<<<<< HEAD
 from models import PlanStep, ExecutionPlan
 from openai import AsyncAzureOpenAI
 from secret_provider import get_secret
+=======
+from json_utils import parse_json_object, strip_json_fences
+from openai_client import get_chat_client, is_foundry_endpoint, model_name_for_role
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 
 log = logging.getLogger(__name__)
 
-# Strip any path suffixes from the endpoint — AsyncAzureOpenAI needs just the host
-_OAI_ENDPOINT_RAW = os.environ["AZURE_OPENAI_ENDPOINT"]
-_OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
-_OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-_OAI_API_VER = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
-_OPENAI_SECRET = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
+_MAX_PLANNER_RETRIES = 2
+_HISTORY_TURNS = int(os.environ.get("ORCHESTRATOR_PLANNER_HISTORY_TURNS", "6"))
 
+<<<<<<< HEAD
 async def _get_secret(name: str) -> str:
     return await get_secret(name, local_env_fallback="AZURE_OPENAI_API_KEY")
 
@@ -42,6 +52,38 @@ def _build_manifest(agents: list[dict[str, Any]]) -> str:
 
 
 _REACTIVE_SYSTEM = """You are a task-planning agent for a utility company support platform.
+=======
+
+@dataclass
+class PlanStep:
+    step_id: int
+    agent_name: str
+    agent_url: str
+    task: str
+    depends_on: list[int] = field(default_factory=list)
+    context_note: str = ""
+    auth_config: dict[str, Any] = field(default_factory=dict)
+    api_key_secret_name: str | None = None
+    invocation_config: dict[str, Any] = field(default_factory=dict)
+    health_check_config: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ExecutionPlan:
+    plan_id: str
+    user_intent: str
+    steps: list[PlanStep]
+    synthesis_instruction: str
+    created_at: str
+
+    def model_dump(self) -> dict:
+        import dataclasses
+
+        return dataclasses.asdict(self)
+
+
+_SYSTEM = """You are a task-planning agent for a utility company support platform.
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 Given a user message and a list of available specialist agents, produce a
 sequential execution plan as valid JSON.
 
@@ -49,8 +91,13 @@ Rules:
 - Include ONLY agents genuinely needed to answer the user's request.
 - steps must be ordered so every step's dependencies have lower step_id values.
 - Each step's task must be a precise, self-contained instruction for that agent.
+<<<<<<< HEAD
 - synthesis_instruction tells the synthesizer how to combine outputs into a
   single helpful answer for the customer.
+=======
+- synthesis_instruction tells the synthesizer how to combine outputs.
+- Use conversation history when provided to resolve follow-up references.
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 
 Return ONLY a JSON object (no markdown, no prose):
 {
@@ -137,7 +184,54 @@ def _topological_order(steps: list[PlanStep]) -> list[PlanStep]:
     return result
 
 
+<<<<<<< HEAD
 async def build_plan(message: str, customer_id: str | None, trigger_type: str = "reactive", chat_history: list[dict] | None = None, args: dict | None = None) -> ExecutionPlan:
+=======
+def _build_manifest(agents: list[dict[str, Any]]) -> str:
+    lines = []
+    for a in agents:
+        caps = "\n".join(f"    - {c['name']}: {c['description']}" for c in a.get("capabilities", []))
+        lines.append(f"Agent: {a['name']}\n  Description: {a['description']}\n  Capabilities:\n{caps}")
+    return "\n\n".join(lines)
+
+
+def _format_history(history: list[dict[str, str]]) -> str:
+    if not history:
+        return ""
+    lines = [f"{h['role']}: {h['content']}" for h in history]
+    return "Prior conversation:\n" + "\n".join(lines) + "\n\n"
+
+
+async def _call_planner_llm(user_prompt: str, strict_retry: bool) -> dict:
+    client = await get_chat_client("planner")
+    model = model_name_for_role("planner")
+    system = _SYSTEM
+    if strict_retry:
+        system += "\n\nYour previous response was invalid JSON. Return ONLY a valid JSON object."
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.1,
+        "max_completion_tokens": 1500,
+    }
+    if not is_foundry_endpoint():
+        kwargs["response_format"] = {"type": "json_object"}
+
+    completion = await client.chat.completions.create(**kwargs)
+    raw = completion.choices[0].message.content or "{}"
+    return parse_json_object(strip_json_fences(raw))
+
+
+async def build_plan(
+    user_message: str,
+    customer_id: str | None,
+    session_id: str | None = None,
+) -> ExecutionPlan:
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
     agents = await memory.get_active_agents()
     if not agents:
         raise RuntimeError("No active agents found in registry")
@@ -145,6 +239,7 @@ async def build_plan(message: str, customer_id: str | None, trigger_type: str = 
     agent_by_name = {a["name"]: a for a in agents}
     manifest = _build_manifest(agents)
 
+<<<<<<< HEAD
     system_prompt = (
         _PROACTIVE_SYSTEM if trigger_type == "proactive" else _REACTIVE_SYSTEM
     )
@@ -192,8 +287,35 @@ async def build_plan(message: str, customer_id: str | None, trigger_type: str = 
         temperature=0.1,
         max_completion_tokens=1500,
     )
+=======
+    history_text = ""
+    if session_id:
+        try:
+            history = await memory.get_conversation_history(session_id, limit=_HISTORY_TURNS)
+            history_text = _format_history(history)
+        except Exception as exc:
+            log.warning("Could not load session history for planning: %s", exc)
 
-    data = json.loads(completion.choices[0].message.content)
+    user_prompt = (
+        f"{history_text}"
+        f"User message: {user_message}\n"
+        + (f"Customer ID: {customer_id}\n" if customer_id else "")
+        + f"\nAvailable agents:\n{manifest}"
+    )
+
+    data: dict | None = None
+    last_err: Exception | None = None
+    for attempt in range(_MAX_PLANNER_RETRIES):
+        try:
+            data = await _call_planner_llm(user_prompt, strict_retry=attempt > 0)
+            break
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            last_err = exc
+            log.warning("Planner JSON parse failed (attempt %d): %s", attempt + 1, exc)
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
+
+    if data is None:
+        raise RuntimeError(f"Planner produced invalid JSON after {_MAX_PLANNER_RETRIES} attempts: {last_err}")
 
     steps: list[PlanStep] = []
     for s in data.get("steps", []):

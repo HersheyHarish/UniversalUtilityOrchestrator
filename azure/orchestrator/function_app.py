@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -12,11 +13,13 @@ log = logging.getLogger(__name__)
 # Catch import errors at startup so /api/health can report them
 _IMPORT_ERROR: str | None = None
 try:
+    import chat_pipeline
     import dashboard_views
     import executor
     import memory
     import planner
     import runtime_contract
+    import sse_events
     import synthesizer
     from trace_writer import TraceContext
     from models import ChatRequest, ProactiveTriggerRequest, StandardResponse, StandardResponse, SessionDoc, SessionStatus
@@ -34,6 +37,7 @@ _AUTH_LEVEL_BY_NAME: dict[str, func.AuthLevel] = {
 _default_level = "ANONYMOUS" if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true" else "FUNCTION"
 _configured_level = os.environ.get("ORCHESTRATOR_HTTP_AUTH_LEVEL", _default_level).upper()
 _DEMO_STEPS_ENABLED = os.environ.get("ORCHESTRATOR_DEMO_STEPS", "").lower() == "true"
+_STREAM_PROGRESS_ENABLED = os.environ.get("ORCHESTRATOR_STREAM_PROGRESS", "").lower() == "true"
 
 app = func.FunctionApp(http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION))
 
@@ -339,6 +343,7 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         return _err(f"Invalid request shape: {e}")
 
+<<<<<<< HEAD
     return await _process_request(
         message=chat_req.message,
         customer_id=chat_req.customer_id,
@@ -381,6 +386,93 @@ async def proactive_trigger(req: func.HttpRequest) -> func.HttpResponse:
             proactive_req.message,
             metadata=metadata
         ),
+=======
+    try:
+        result = await chat_pipeline.run_chat_pipeline(chat_req)
+    except ValueError as e:
+        return _err(str(e), 400)
+    except LookupError as e:
+        return _err(str(e), 404)
+    except Exception as e:
+        log.exception("Chat pipeline failed")
+        return _err("Chat request failed", 500, str(e))
+
+    return _ok(
+        ChatResponse(
+            session_id=result.session_id,
+            response=result.response,
+            plan_id=result.plan_id,
+            agents_used=result.agents_used,
+            steps_completed=result.steps_completed,
+            content_segments=result.content_segments,
+        ).model_dump()
+>>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
+    )
+
+
+@app.route(route="chat/stream", methods=["POST"])
+async def chat_stream(req: func.HttpRequest) -> func.HttpResponse:
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
+
+    try:
+        body = req.get_json()
+    except Exception as e:
+        return _err(f"Could not parse JSON body: {e}")
+
+    try:
+        chat_req = ChatRequest(**body)
+    except Exception as e:
+        return _err(f"Invalid request shape: {e}")
+
+    # Azure Functions Python HttpResponse does not accept async generators; buffer SSE chunks.
+    chunks: list[str] = []
+
+    async def on_event(event: str, data: dict) -> None:
+        chunks.append(sse_events.format_sse(event, data))
+
+    try:
+        result = await chat_pipeline.run_chat_pipeline(
+            chat_req,
+            on_event=on_event,
+            stream_tokens=True,
+        )
+        chunks.append(
+            sse_events.format_sse(
+                "done",
+                {
+                    "session_id": result.session_id,
+                    "response": result.response,
+                    "plan_id": result.plan_id,
+                    "agents_used": result.agents_used,
+                    "steps_completed": result.steps_completed,
+                    "content_segments": result.content_segments,
+                },
+            )
+        )
+    except ValueError as e:
+        chunks.append(sse_events.format_sse("error", {"error": str(e), "status": 400}))
+    except LookupError as e:
+        chunks.append(sse_events.format_sse("error", {"error": str(e), "status": 404}))
+    except Exception as e:
+        log.exception("Streaming chat pipeline failed")
+        chunks.append(
+            sse_events.format_sse(
+                "error",
+                {"error": "Chat request failed", "detail": str(e)},
+            )
+        )
+
+    return func.HttpResponse(
+        body="".join(chunks),
+        status_code=200,
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -400,7 +492,7 @@ async def get_session(req: func.HttpRequest) -> func.HttpResponse:
             return _err("Session not found", 404)
         messages = await memory.get_step_results(session_id)
         payload = {"session": session, "step_results": messages}
-        if _DEMO_STEPS_ENABLED:
+        if _DEMO_STEPS_ENABLED or _STREAM_PROGRESS_ENABLED:
             payload["demo_events"] = await trace_writer.get_demo_events(session_id)
         return _ok(payload)
     except Exception as e:

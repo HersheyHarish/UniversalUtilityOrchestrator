@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
+import { streamChat } from "../api/orchestratorStream";
 
 const ChatContext = createContext();
 const DEMO_STEPS_ENABLED = String(import.meta.env.VITE_DEMO_STEPS || "").toLowerCase() === "true";
@@ -69,6 +70,7 @@ export function ChatProvider({ children }) {
     if (!activeSessionId) {
       setMessages([]);
       setDemoEvents([]);
+      setPipelineStages([]);
       return;
     }
 
@@ -108,6 +110,7 @@ export function ChatProvider({ children }) {
   }, [activeSessionId]);
 
   const startNewChat = () => {
+    if (abortRef.current) abortRef.current.abort();
     setActiveSessionId(null);
     setMessages([]);
     setDemoEvents([]);
@@ -119,6 +122,7 @@ export function ChatProvider({ children }) {
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setIsLoading(true);
     setError(null);
+    setPipelineStages([]);
     if (DEMO_STEPS_ENABLED) setDemoEvents([]);
     setAgentOutputs([]);
 
@@ -189,6 +193,7 @@ export function ChatProvider({ children }) {
     } finally {
       if (pollInterval) clearInterval(pollInterval);
       setIsLoading(false);
+      abortRef.current = null;
     }
   }, [activeSessionId, customerId]);
 

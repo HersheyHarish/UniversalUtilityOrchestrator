@@ -42,6 +42,8 @@ def validate_runtime_contract(env: Mapping[str, str] | None = None) -> list[str]
     if is_prod and demo_steps:
         errors.append("APP_ENV=prod forbids ORCHESTRATOR_DEMO_STEPS=true")
 
+    # ORCHESTRATOR_STREAM_PROGRESS is allowed in prod (SSE trace persistence)
+
     required = ["COSMOS_ENDPOINT", "AZURE_OPENAI_ENDPOINT"]
     if is_prod or strict_mode:
         required.extend(["KEY_VAULT_URL", "OPENAI_SECRET_NAME", "BUILD_VERSION", "BUILD_SHA"])

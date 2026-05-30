@@ -257,6 +257,29 @@ async def get_conversation_history(session_id: str, limit: int = 10) -> list[dic
         for row in rows
     ]
 
+async def get_conversation_history(session_id: str, limit: int = 8) -> list[dict[str, str]]:
+    """Recent user/assistant turns for multi-turn planning."""
+    rows = await _query(
+        "messages",
+        "SELECT c.type, c.content, c.created_at FROM c "
+        "WHERE c.session_id = @sid AND c.type IN (@user, @final) "
+        "ORDER BY c.created_at",
+        params=[
+            {"name": "@sid", "value": session_id},
+            {"name": "@user", "value": MessageType.USER_INPUT},
+            {"name": "@final", "value": MessageType.FINAL},
+        ],
+        pk=session_id,
+    )
+    history: list[dict[str, str]] = []
+    for row in rows[-limit:]:
+        role = "user" if row.get("type") == MessageType.USER_INPUT else "assistant"
+        content = (row.get("content") or "").strip()
+        if content:
+            history.append({"role": role, "content": content[:500]})
+    return history
+
+
 # ── Agent registry ────────────────────────────────────────────────────────────
 
 
