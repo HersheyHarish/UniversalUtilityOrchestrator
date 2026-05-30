@@ -1,7 +1,14 @@
+import sys
+from pathlib import Path
+
 import httpx
 import pytest
 import respx
-from executor import _build_body, _call_agent, _extract_result
+
+ORCH = Path(__file__).resolve().parents[2] / "azure" / "orchestrator"
+sys.path.insert(0, str(ORCH))
+
+from executor import _build_body, _call_agent, _extract_result  # noqa: E402
 
 
 class MockStep:
@@ -18,8 +25,9 @@ class MockStep:
         self.context_note = ""
 
 
-def test_build_body_legacy():
-    body = _build_body({}, "test_task", "sess_1", "cust_1", {1: "out_1"}, "note")
+@pytest.mark.asyncio
+async def test_build_body_legacy():
+    body = await _build_body({}, "test_task", "sess_1", "cust_1", {1: "out_1"}, "note")
     assert body["task"] == "test_task"
     assert body["session_id"] == "sess_1"
     assert body["customer_id"] == "cust_1"
@@ -27,9 +35,10 @@ def test_build_body_legacy():
     assert body["context"]["planner_note"] == "note"
 
 
-def test_build_body_template():
+@pytest.mark.asyncio
+async def test_build_body_template():
     inv_config = {"body_template": {"query": "{task}", "user": "{customer_id}", "previous": "{step_1}"}}
-    body = _build_body(inv_config, "my_task", "sess_1", "cust_1", {1: "out_1"}, "")
+    body = await _build_body(inv_config, "my_task", "sess_1", "cust_1", {1: "out_1"}, "")
     assert body == {"query": "my_task", "user": "cust_1", "previous": "out_1"}
 
 
@@ -37,11 +46,9 @@ def test_extract_result():
     resp = {"data": {"nested": {"value": "hello"}}}
     assert _extract_result(resp, "data.nested.value") == "hello"
 
-    # Fallback to default
     resp_default = {"result": "world"}
     assert _extract_result(resp_default, "") == "world"
 
-    # Invalid path fallback
     assert _extract_result(resp_default, "invalid.path") == '{"result": "world"}'
 
 
@@ -50,24 +57,20 @@ def test_extract_result():
 async def test_call_agent_success():
     step = MockStep(1, "TestAgent", "https://test.com/api", "Do it")
 
-    # Mock auth resolution
-
-    # Mock the auth_injector which _call_agent uses
     class MockInjectedAuth:
         def apply_to_kwargs(self, kwargs):
             kwargs["headers"]["Authorization"] = "Bearer token"
             return kwargs
 
-    # respx mock
     respx.post("https://test.com/api").mock(
         return_value=httpx.Response(200, json={"result": "Agent output", "actions_taken": ["act1"]})
     )
 
-    # We must patch auth_injector.resolve since it interacts with Key Vault
     from unittest.mock import patch
 
-    with patch("auth_injector.resolve", return_value=MockInjectedAuth()):
-        result = await _call_agent(step, "sess_1", "cust_1", {})
+    async with httpx.AsyncClient() as client:
+        with patch("auth_injector.resolve", return_value=MockInjectedAuth()):
+            result = await _call_agent(step, "sess_1", "cust_1", {}, client)
 
     assert result["result"] == "Agent output"
     assert result["actions_taken"] == ["act1"]
@@ -86,6 +89,7 @@ async def test_call_agent_http_error():
 
     from unittest.mock import patch
 
-    with patch("auth_injector.resolve", return_value=MockInjectedAuth()):
-        with pytest.raises(RuntimeError, match="TestAgent failed"):
-            await _call_agent(step, "sess_1", "cust_1", {})
+    async with httpx.AsyncClient() as client:
+        with patch("auth_injector.resolve", return_value=MockInjectedAuth()):
+            with pytest.raises(RuntimeError, match="TestAgent failed"):
+                await _call_agent(step, "sess_1", "cust_1", {}, client)

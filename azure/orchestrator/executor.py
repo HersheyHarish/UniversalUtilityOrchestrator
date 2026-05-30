@@ -15,15 +15,23 @@ import asyncio
 import json
 import logging
 import os
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import auth_injector
 import httpx
+from execution_graph import build_execution_layers
+from schema_mapper import SchemaMapError, build as schema_build
+from schema_mapper import fields_from_config
 
 log = logging.getLogger(__name__)
 
 _GLOBAL_TIMEOUT = float(os.environ.get("AGENT_TIMEOUT_SECS", "45"))
 _GLOBAL_MAX_RETRY = int(os.environ.get("AGENT_MAX_RETRIES", "2"))
+_PARALLEL_EXEC = os.environ.get("ORCHESTRATOR_PARALLEL_EXEC", "true").lower() == "true"
+
+StepProgressCallback = Callable[..., Awaitable[None]]
 
 
 # =============================================================================
@@ -76,7 +84,31 @@ def _render_body(template: Any, ctx: dict[str, Any]) -> Any:
     return _render_value(template, ctx)
 
 
-def _build_body(
+def _build_context(
+    task: str,
+    session_id: str,
+    customer_id: str | None,
+    prior_outputs: dict[int, str],
+    context_note: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    ctx: dict[str, Any] = {
+        "task": task,
+        "session_id": session_id,
+        "customer_id": customer_id or "",
+    }
+    for step_id, output in prior_outputs.items():
+        ctx[f"step_{step_id}"] = output
+
+    context_dict: dict[str, Any] = {}
+    for dep_id, output in prior_outputs.items():
+        context_dict[f"step_{dep_id}_output"] = output
+    if context_note:
+        context_dict["planner_note"] = context_note
+    ctx["context"] = context_dict
+    return ctx, context_dict
+
+
+async def _build_body(
     invocation_config: dict[str, Any],
     task: str,
     session_id: str,
@@ -87,33 +119,31 @@ def _build_body(
     """
     Build the HTTP request body.
 
-    If invocation_config.body_template is non-empty, render it.
-    Otherwise fall back to the legacy AgentRequest schema.
+    Priority: body_template → request_schema (LLM mapper) → legacy AgentRequest.
     """
     body_template = invocation_config.get("body_template") or {}
-
-    # Build context dict for template rendering
-    ctx: dict[str, Any] = {
-        "task": task,
-        "session_id": session_id,
-        "customer_id": customer_id or "",
-    }
-    # Step outputs available as {step_1}, {step_2}, etc.
-    for step_id, output in prior_outputs.items():
-        ctx[f"step_{step_id}"] = output
-
-    # Full context dict available as {context}
-    context_dict: dict[str, Any] = {}
-    for dep_id, output in prior_outputs.items():
-        context_dict[f"step_{dep_id}_output"] = output
-    if context_note:
-        context_dict["planner_note"] = context_note
-    ctx["context"] = context_dict
+    ctx, context_dict = _build_context(task, session_id, customer_id, prior_outputs, context_note)
 
     if body_template:
         return _render_body(body_template, ctx)
 
-    # Legacy default — matches the original AgentRequest Pydantic model
+    request_schema = invocation_config.get("request_schema") or {}
+    schema_fields = fields_from_config(request_schema)
+    if schema_fields:
+        strict = request_schema.get("strict", True)
+        json_schema = request_schema.get("json_schema")
+        mapping = await schema_build(
+            schema_fields=schema_fields,
+            strict=bool(strict),
+            json_schema=json_schema,
+            task=task,
+            session_id=session_id,
+            customer_id=customer_id,
+            prior_outputs=prior_outputs,
+            context_note=context_note,
+        )
+        return mapping.body
+
     return {
         "task": task,
         "session_id": session_id,
@@ -169,6 +199,7 @@ async def _call_agent(
     session_id: str,
     customer_id: str | None,
     prior_outputs: dict[int, str],
+    http_client: httpx.AsyncClient,
 ) -> dict[str, Any]:
     """
     Build, auth-inject, and send the HTTP request to a remote agent.
@@ -183,7 +214,7 @@ async def _call_agent(
     effective_timeout = float(timeout) if timeout > 0 else _GLOBAL_TIMEOUT
     effective_max_retry = max_retries if max_retries >= 0 else _GLOBAL_MAX_RETRY
 
-    body = _build_body(
+    body = await _build_body(
         invocation_config=inv,
         task=step.task,
         session_id=session_id,
@@ -223,9 +254,8 @@ async def _call_agent(
     last_exc: Exception | None = None
     for attempt in range(1, effective_max_retry + 2):
         try:
-            async with httpx.AsyncClient(timeout=effective_timeout) as client:
-                resp = await client.request(**request_kwargs)
-                resp.raise_for_status()
+            resp = await http_client.request(**request_kwargs, timeout=effective_timeout)
+            resp.raise_for_status()
 
             resp_body = resp.json()
             result_path = inv.get("response_result_path") or ""
@@ -257,11 +287,111 @@ async def _call_agent(
 # =============================================================================
 
 
+async def _execute_one_step(
+    step: Any,
+    session_id: str,
+    customer_id: str | None,
+    prior_outputs: dict[int, str],
+    trace_ctx: Any | None,
+    http_client: httpx.AsyncClient,
+    on_step_progress: StepProgressCallback | None,
+) -> tuple[int, dict | None, str | None]:
+    """Returns (step_id, response_dict or None, error or None)."""
+    import memory
+
+    log.info("Executing step %d: %s", step.step_id, step.agent_name)
+    await memory.save_step_start(session_id, step.step_id, step.agent_name, step.task)
+
+    if on_step_progress:
+        await on_step_progress(step.step_id, step.agent_name, "running")
+
+    body_preview = None
+    if trace_ctx:
+        await trace_ctx.record_event(
+            stage="execution",
+            status="running",
+            message=f"Executing step {step.step_id} with agent {step.agent_name}.",
+            metadata={"step_id": step.step_id, "agent_name": step.agent_name},
+        )
+        try:
+            body_preview = await _build_body(
+                invocation_config=step.invocation_config or {},
+                task=step.task,
+                session_id=session_id,
+                customer_id=customer_id,
+                prior_outputs=prior_outputs,
+                context_note=getattr(step, "context_note", ""),
+            )
+        except Exception as preview_exc:
+            log.warning("Body preview failed for step %d: %s", step.step_id, preview_exc)
+            body_preview = {}
+        trace_ctx.record_step_start(step, body_preview or {})
+
+    t0 = time.monotonic()
+    try:
+        response = await _call_agent(step, session_id, customer_id, prior_outputs, http_client)
+        latency_ms = int((time.monotonic() - t0) * 1000)
+
+        await memory.save_step_result(
+            session_id=session_id,
+            step_id=step.step_id,
+            agent_name=step.agent_name,
+            result=response["result"],
+            metadata={
+                "actions_taken": response.get("actions_taken"),
+                "suggestions": response.get("suggestions"),
+                **response.get("metadata", {}),
+            },
+        )
+        if trace_ctx:
+            await trace_ctx.record_event(
+                stage="execution",
+                status="completed",
+                message=f"Completed step {step.step_id} with agent {step.agent_name}.",
+                metadata={"step_id": step.step_id, "agent_name": step.agent_name},
+            )
+            await trace_ctx.record_step_result(
+                step_id=step.step_id,
+                output=response,
+                result=response["result"],
+            )
+        if on_step_progress:
+            await on_step_progress(step.step_id, step.agent_name, "completed", latency_ms=latency_ms)
+        log.info("Step %d (%s) completed", step.step_id, step.agent_name)
+        return step.step_id, response, None
+
+    except SchemaMapError as exc:
+        err = f"Schema mapping failed: {exc}"
+        if trace_ctx:
+            try:
+                await trace_ctx.record_step_schema_error(step.step_id, err)
+            except Exception:
+                pass
+        if on_step_progress:
+            await on_step_progress(step.step_id, step.agent_name, "failed", error=err)
+        return step.step_id, None, err
+    except Exception as exc:
+        log.error("Step %d (%s) failed: %s", step.step_id, step.agent_name, exc)
+        await memory.save_step_error(session_id, step.step_id, step.agent_name, str(exc))
+        if trace_ctx:
+            await trace_ctx.record_event(
+                stage="execution",
+                status="failed",
+                message=f"Failed step {step.step_id} with agent {step.agent_name}.",
+                metadata={"step_id": step.step_id, "agent_name": step.agent_name, "error": str(exc)},
+            )
+            await trace_ctx.record_step_error(step.step_id, str(exc))
+        if on_step_progress:
+            await on_step_progress(step.step_id, step.agent_name, "failed", error=str(exc))
+        return step.step_id, None, str(exc)
+
+
 async def execute_plan(
     plan: Any,
     session_id: str,
     customer_id: str | None,
     trace_ctx: Any | None = None,
+    on_step_progress: StepProgressCallback | None = None,
 ) -> dict:
     import memory
 
@@ -271,82 +401,77 @@ async def execute_plan(
 
     await memory.update_session(session_id, status="executing")
 
-    for step in plan.steps:
-        blocked = [d for d in step.depends_on if d in failed]
-        if blocked:
-            log.warning("Skipping step %d (%s): deps %s failed", step.step_id, step.agent_name, blocked)
-            failed.add(step.step_id)
-            await memory.save_step_error(session_id, step.step_id, step.agent_name, f"Skipped — deps {blocked} failed")
-            if trace_ctx:
-                await trace_ctx.record_event(
-                    stage="execution",
-                    status="skipped",
-                    message=f"Skipped step {step.step_id} ({step.agent_name}) due to failed dependencies.",
-                    metadata={"step_id": step.step_id, "agent_name": step.agent_name, "blocked_by": blocked},
-                )
-                await trace_ctx.record_step_error(step.step_id, f"Skipped — deps {blocked} failed", skipped=True)
-            continue
+    layers = build_execution_layers(plan.steps) if _PARALLEL_EXEC else [[s] for s in plan.steps]
 
-        log.info("Executing step %d: %s", step.step_id, step.agent_name)
-        await memory.save_step_start(session_id, step.step_id, step.agent_name, step.task)
-        if trace_ctx:
-            await trace_ctx.record_event(
-                stage="execution",
-                status="running",
-                message=f"Executing step {step.step_id} with agent {step.agent_name}.",
-                metadata={"step_id": step.step_id, "agent_name": step.agent_name},
-            )
-            body_preview = _build_body(
-                invocation_config=step.invocation_config or {},
-                task=step.task,
-                session_id=session_id,
-                customer_id=customer_id,
-                prior_outputs=prior_outputs,
-                context_note=getattr(step, "context_note", ""),
-            )
-            trace_ctx.record_step_start(step, body_preview)
+    async with httpx.AsyncClient(timeout=_GLOBAL_TIMEOUT) as http_client:
+        for layer in layers:
+            runnable: list[Any] = []
+            for step in layer:
+                blocked = [d for d in step.depends_on if d in failed]
+                if blocked:
+                    log.warning(
+                        "Skipping step %d (%s): deps %s failed",
+                        step.step_id,
+                        step.agent_name,
+                        blocked,
+                    )
+                    failed.add(step.step_id)
+                    await memory.save_step_error(
+                        session_id,
+                        step.step_id,
+                        step.agent_name,
+                        f"Skipped — deps {blocked} failed",
+                    )
+                    if trace_ctx:
+                        await trace_ctx.record_event(
+                            stage="execution",
+                            status="skipped",
+                            message=f"Skipped step {step.step_id} ({step.agent_name}) due to failed dependencies.",
+                            metadata={
+                                "step_id": step.step_id,
+                                "agent_name": step.agent_name,
+                                "blocked_by": blocked,
+                            },
+                        )
+                        await trace_ctx.record_step_error(
+                            step.step_id, f"Skipped — deps {blocked} failed", skipped=True
+                        )
+                    if on_step_progress:
+                        await on_step_progress(step.step_id, step.agent_name, "skipped")
+                    continue
+                runnable.append(step)
 
-        try:
-            response = await _call_agent(step, session_id, customer_id, prior_outputs)
-            results[step.step_id] = response
-            prior_outputs[step.step_id] = response["result"]
+            if not runnable:
+                continue
 
-            await memory.save_step_result(
-                session_id=session_id,
-                step_id=step.step_id,
-                agent_name=step.agent_name,
-                result=response["result"],
-                metadata={
-                    "actions_taken": response.get("actions_taken"),
-                    "suggestions": response.get("suggestions"),
-                    **response.get("metadata", {}),
-                },
-            )
-            if trace_ctx:
-                await trace_ctx.record_event(
-                    stage="execution",
-                    status="completed",
-                    message=f"Completed step {step.step_id} with agent {step.agent_name}.",
-                    metadata={"step_id": step.step_id, "agent_name": step.agent_name},
+            if len(runnable) == 1:
+                step = runnable[0]
+                sid, response, err = await _execute_one_step(
+                    step, session_id, customer_id, prior_outputs, trace_ctx, http_client, on_step_progress
                 )
-                await trace_ctx.record_step_result(
-                    step_id=step.step_id,
-                    output=response,
-                    result=response["result"],
-                )
-            log.info("Step %d (%s) completed", step.step_id, step.agent_name)
+                if err:
+                    failed.add(sid)
+                elif response:
+                    results[sid] = response
+                    prior_outputs[sid] = response["result"]
+                continue
 
-        except Exception as exc:
-            log.error("Step %d (%s) failed: %s", step.step_id, step.agent_name, exc)
-            failed.add(step.step_id)
-            await memory.save_step_error(session_id, step.step_id, step.agent_name, str(exc))
-            if trace_ctx:
-                await trace_ctx.record_event(
-                    stage="execution",
-                    status="failed",
-                    message=f"Failed step {step.step_id} with agent {step.agent_name}.",
-                    metadata={"step_id": step.step_id, "agent_name": step.agent_name, "error": str(exc)},
+            tasks = [
+                _execute_one_step(
+                    step, session_id, customer_id, dict(prior_outputs), trace_ctx, http_client, on_step_progress
                 )
-                await trace_ctx.record_step_error(step.step_id, str(exc))
+                for step in runnable
+            ]
+            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+            for outcome in outcomes:
+                if isinstance(outcome, Exception):
+                    log.error("Parallel step raised: %s", outcome)
+                    continue
+                sid, response, err = outcome
+                if err:
+                    failed.add(sid)
+                elif response:
+                    results[sid] = response
+                    prior_outputs[sid] = response["result"]
 
     return results

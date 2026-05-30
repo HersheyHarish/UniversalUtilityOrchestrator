@@ -12,6 +12,14 @@ export default defineConfig(({ mode }) => {
       target: orchestratorTarget,
       changeOrigin: true,
       secure: false,
+      configure: (proxy) => {
+        proxy.on("proxyRes", (proxyRes, req) => {
+          if (req.url && req.url.includes("/chat/stream")) {
+            proxyRes.headers["cache-control"] = "no-cache";
+            proxyRes.headers["x-accel-buffering"] = "no";
+          }
+        });
+      },
     },
   };
 

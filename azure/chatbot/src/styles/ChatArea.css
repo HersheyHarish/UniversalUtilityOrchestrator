@@ -123,6 +123,31 @@
   font-size: 0.75rem;
 }
 
+.message-ascii,
+.message-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  white-space: pre;
+  overflow-x: auto;
+  background: var(--bg-secondary, #1e1e1e);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.message-prose .message-paragraph {
+  margin: 0 0 0.5em;
+}
+
+.streaming-cursor {
+  animation: blink 1s step-end infinite;
+  opacity: 0.7;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 .demo-steps-panel {
   align-self: stretch;
   background: var(--bg-secondary);

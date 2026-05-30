@@ -47,6 +47,9 @@ export const orchestratorApi = {
       body: JSON.stringify({ message, customer_id: customerId, session_id: sessionId }),
     }),
 
+  // Streaming chat (SSE) — use orchestratorStream.streamChat from callers
+  chatStreamUrl: () => "/api/chat/stream",
+
   // Session history
   session: (sessionId) => req(`/api/sessions/${encodeURIComponent(sessionId)}`),
 };

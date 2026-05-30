@@ -1,9 +1,6 @@
 """
 planner.py — Planning agent. Updated PlanStep to carry invocation_config
 and health_check_config from the registry entry.
-
-The LLM never sees invocation_config, health_check_config, or auth_config.
-These are enriched from the registry after the LLM produces its plan JSON.
 """
 
 from __future__ import annotations
@@ -18,17 +15,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 import memory
-from openai import AsyncAzureOpenAI
-from secret_provider import get_secret
+from json_utils import parse_json_object, strip_json_fences
+from openai_client import get_chat_client, is_foundry_endpoint, model_name_for_role
 
 log = logging.getLogger(__name__)
 
-# Strip any path suffixes from the endpoint — AsyncAzureOpenAI needs just the host
-_OAI_ENDPOINT_RAW = os.environ["AZURE_OPENAI_ENDPOINT"]
-_OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
-_OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-_OAI_API_VER = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
-_OPENAI_SECRET = os.environ.get("OPENAI_SECRET_NAME", "openai-api-key")
+_MAX_PLANNER_RETRIES = 2
+_HISTORY_TURNS = int(os.environ.get("ORCHESTRATOR_PLANNER_HISTORY_TURNS", "6"))
 
 
 @dataclass
@@ -39,12 +32,9 @@ class PlanStep:
     task: str
     depends_on: list[int] = field(default_factory=list)
     context_note: str = ""
-    # Auth — from registry, never from LLM
     auth_config: dict[str, Any] = field(default_factory=dict)
-    api_key_secret_name: str | None = None  # legacy
-    # Invocation — how to build the request body and extract the result
+    api_key_secret_name: str | None = None
     invocation_config: dict[str, Any] = field(default_factory=dict)
-    # Health check — carried for diagnostics / future per-step health assertions
     health_check_config: dict[str, Any] = field(default_factory=dict)
 
 
@@ -62,28 +52,6 @@ class ExecutionPlan:
         return dataclasses.asdict(self)
 
 
-async def _get_secret(name: str) -> str:
-    return await get_secret(name, local_env_fallback="AZURE_OPENAI_API_KEY")
-
-
-async def _openai_client() -> AsyncAzureOpenAI:
-    api_key = await _get_secret(_OPENAI_SECRET)
-    return AsyncAzureOpenAI(
-        azure_endpoint=_OAI_ENDPOINT,
-        api_key=api_key,
-        api_version=_OAI_API_VER,
-    )
-
-
-def _build_manifest(agents: list[dict[str, Any]]) -> str:
-    """LLM-safe manifest — no auth, no invocation details, no endpoints."""
-    lines = []
-    for a in agents:
-        caps = "\n".join(f"    - {c['name']}: {c['description']}" for c in a.get("capabilities", []))
-        lines.append(f"Agent: {a['name']}\n  Description: {a['description']}\n  Capabilities:\n{caps}")
-    return "\n\n".join(lines)
-
-
 _SYSTEM = """You are a task-planning agent for a utility company support platform.
 Given a user message and a list of available specialist agents, produce a
 sequential execution plan as valid JSON.
@@ -93,6 +61,7 @@ Rules:
 - steps must be ordered so every step's dependencies have lower step_id values.
 - Each step's task must be a precise, self-contained instruction for that agent.
 - synthesis_instruction tells the synthesizer how to combine outputs.
+- Use conversation history when provided to resolve follow-up references.
 
 Return ONLY a JSON object (no markdown, no prose):
 {
@@ -151,7 +120,50 @@ def _topological_order(steps: list[PlanStep]) -> list[PlanStep]:
     return result
 
 
-async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPlan:
+def _build_manifest(agents: list[dict[str, Any]]) -> str:
+    lines = []
+    for a in agents:
+        caps = "\n".join(f"    - {c['name']}: {c['description']}" for c in a.get("capabilities", []))
+        lines.append(f"Agent: {a['name']}\n  Description: {a['description']}\n  Capabilities:\n{caps}")
+    return "\n\n".join(lines)
+
+
+def _format_history(history: list[dict[str, str]]) -> str:
+    if not history:
+        return ""
+    lines = [f"{h['role']}: {h['content']}" for h in history]
+    return "Prior conversation:\n" + "\n".join(lines) + "\n\n"
+
+
+async def _call_planner_llm(user_prompt: str, strict_retry: bool) -> dict:
+    client = await get_chat_client("planner")
+    model = model_name_for_role("planner")
+    system = _SYSTEM
+    if strict_retry:
+        system += "\n\nYour previous response was invalid JSON. Return ONLY a valid JSON object."
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.1,
+        "max_completion_tokens": 1500,
+    }
+    if not is_foundry_endpoint():
+        kwargs["response_format"] = {"type": "json_object"}
+
+    completion = await client.chat.completions.create(**kwargs)
+    raw = completion.choices[0].message.content or "{}"
+    return parse_json_object(strip_json_fences(raw))
+
+
+async def build_plan(
+    user_message: str,
+    customer_id: str | None,
+    session_id: str | None = None,
+) -> ExecutionPlan:
     agents = await memory.get_active_agents()
     if not agents:
         raise RuntimeError("No active agents found in registry")
@@ -159,25 +171,33 @@ async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPla
     agent_by_name = {a["name"]: a for a in agents}
     manifest = _build_manifest(agents)
 
+    history_text = ""
+    if session_id:
+        try:
+            history = await memory.get_conversation_history(session_id, limit=_HISTORY_TURNS)
+            history_text = _format_history(history)
+        except Exception as exc:
+            log.warning("Could not load session history for planning: %s", exc)
+
     user_prompt = (
+        f"{history_text}"
         f"User message: {user_message}\n"
         + (f"Customer ID: {customer_id}\n" if customer_id else "")
         + f"\nAvailable agents:\n{manifest}"
     )
 
-    client = await _openai_client()
-    completion = await client.chat.completions.create(
-        model=_OAI_DEPLOYMENT,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.1,
-        max_completion_tokens=1500,
-    )
+    data: dict | None = None
+    last_err: Exception | None = None
+    for attempt in range(_MAX_PLANNER_RETRIES):
+        try:
+            data = await _call_planner_llm(user_prompt, strict_retry=attempt > 0)
+            break
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            last_err = exc
+            log.warning("Planner JSON parse failed (attempt %d): %s", attempt + 1, exc)
 
-    data = json.loads(completion.choices[0].message.content)
+    if data is None:
+        raise RuntimeError(f"Planner produced invalid JSON after {_MAX_PLANNER_RETRIES} attempts: {last_err}")
 
     steps: list[PlanStep] = []
     for s in data.get("steps", []):
@@ -195,7 +215,6 @@ async def build_plan(user_message: str, customer_id: str | None) -> ExecutionPla
                 task=s["task"],
                 depends_on=s.get("depends_on", []),
                 context_note=s.get("context_note", ""),
-                # Server-side enrichment — never from LLM
                 auth_config=entry.get("auth_config") or {},
                 api_key_secret_name=entry.get("api_key_secret_name"),
                 invocation_config=entry.get("invocation_config") or {},

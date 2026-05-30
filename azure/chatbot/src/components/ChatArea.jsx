@@ -1,12 +1,13 @@
 import React, { useRef, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
 import MessageInput from './MessageInput';
+import MessageContent from './MessageContent';
 import { Sparkles, Bot, AlertTriangle } from 'lucide-react';
 import { getUserName } from '../utils/nameMapping';
 import '../styles/ChatArea.css';
 
 export default function ChatArea() {
-  const { messages, error, customerId, demoEvents, demoStepsEnabled, isLoading } = useChat();
+  const { messages, error, customerId, demoEvents, pipelineStages, demoStepsEnabled, isLoading } = useChat();
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -46,17 +47,22 @@ export default function ChatArea() {
                     <div className="avatar">
                       <Sparkles size={20} className="accent-icon" />
                     </div>
-                    <div className="bubble">{msg.content}</div>
+                    <div className="bubble">
+                      <MessageContent content={msg.content} segments={msg.segments} />
+                      {msg.streaming && !msg.content && (
+                        <span className="streaming-cursor">▋</span>
+                      )}
+                    </div>
                   </div>
                 );
               }
             })}
 
-            {demoStepsEnabled && (isLoading || (demoEvents || []).length > 0) && (
+            {demoStepsEnabled && (isLoading || (demoEvents || []).length > 0 || (pipelineStages || []).length > 0) && (
               <div className="demo-steps-panel">
                 <div className="demo-steps-title">Orchestrator intermediate steps</div>
                 <div className="demo-steps-list">
-                  {(demoEvents || []).map((ev, idx) => (
+                  {(pipelineStages.length ? pipelineStages : demoEvents || []).map((ev, idx) => (
                     <div key={`${ev.timestamp || "t"}-${idx}`} className={`demo-step-item status-${ev.status || "info"}`}>
                       <span className="demo-step-stage">{ev.stage || "stage"}</span>
                       <span className="demo-step-message">{ev.message || "Working..."}</span>

@@ -10,6 +10,7 @@ Fixes applied:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -22,11 +23,13 @@ log = logging.getLogger(__name__)
 # Catch import errors at startup so /api/health can report them
 _IMPORT_ERROR: str | None = None
 try:
+    import chat_pipeline
     import dashboard_views
     import executor
     import memory
     import planner
     import runtime_contract
+    import sse_events
     import synthesizer
     import trace_writer
     from models import ChatRequest, ChatResponse, SessionDoc, SessionStatus
@@ -44,6 +47,7 @@ _AUTH_LEVEL_BY_NAME: dict[str, func.AuthLevel] = {
 _default_level = "ANONYMOUS" if os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true" else "FUNCTION"
 _configured_level = os.environ.get("ORCHESTRATOR_HTTP_AUTH_LEVEL", _default_level).upper()
 _DEMO_STEPS_ENABLED = os.environ.get("ORCHESTRATOR_DEMO_STEPS", "").lower() == "true"
+_STREAM_PROGRESS_ENABLED = os.environ.get("ORCHESTRATOR_STREAM_PROGRESS", "").lower() == "true"
 
 app = func.FunctionApp(http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION))
 
@@ -144,104 +148,90 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
         return _err(f"Invalid request shape: {e}")
 
     try:
-        if chat_req.session_id:
-            existing = await memory.get_session(chat_req.session_id)
-            if not existing:
-                return _err(f"Session '{chat_req.session_id}' not found", 404)
-            session = SessionDoc(**{k: v for k, v in existing.items() if k in SessionDoc.model_fields})
-        else:
-            session = SessionDoc(
-                user_message=chat_req.message,
-                customer_id=chat_req.customer_id,
-            )
-            session = await memory.create_session(session)
-        session_id = session.id
+        result = await chat_pipeline.run_chat_pipeline(chat_req)
+    except ValueError as e:
+        return _err(str(e), 400)
+    except LookupError as e:
+        return _err(str(e), 404)
     except Exception as e:
-        log.exception("Session init failed")
-        return _err("Session creation failed", 500, str(e))
-
-    try:
-        await memory.save_user_message(session_id, chat_req.message)
-    except Exception as e:
-        log.warning("Could not save user message (non-fatal): %s", e)
-
-    trace_ctx = None
-    try:
-        trace_ctx = trace_writer.TraceContext(
-            session_id=session_id,
-            user_message=chat_req.message,
-            customer_id=chat_req.customer_id,
-        )
-    except Exception as e:
-        log.warning("Trace init failed for session %s (non-fatal): %s", session_id, e)
-
-    try:
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("request", "running", "Received user request.")
-        plan = await planner.build_plan(chat_req.message, chat_req.customer_id)
-        await memory.save_plan(session_id, plan)
-        log.info("Session %s: plan built — %d steps", session_id, len(plan.steps))
-        if trace_ctx:
-            await trace_ctx.record_plan(plan)
-    except Exception as e:
-        log.exception("Planning failed for session %s", session_id)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("planning", "failed", "Planning failed.", {"error": str(e)})
-        await memory.update_session(session_id, status=SessionStatus.FAILED)
-        return _err("Planning failed", 500, str(e))
-
-    try:
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("execution", "running", "Starting execution of planned steps.")
-        step_results = await executor.execute_plan(
-            plan,
-            session_id,
-            chat_req.customer_id,
-            trace_ctx=trace_ctx,
-        )
-    except Exception as e:
-        log.exception("Execution failed for session %s", session_id)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("execution", "failed", "Execution failed.", {"error": str(e)})
-        if trace_ctx:
-            try:
-                await trace_ctx.finish(error=f"Execution failed: {e}")
-            except Exception as trace_err:
-                log.warning("Trace finish failed after execution error: %s", trace_err)
-        await memory.update_session(session_id, status=SessionStatus.FAILED)
-        return _err("Execution failed", 500, str(e))
-
-    try:
-        await memory.update_session(session_id, status=SessionStatus.SYNTHESIZING)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("synthesis", "running", "Synthesizing final answer.")
-        final = await synthesizer.synthesize(plan, step_results, chat_req.message)
-        await memory.save_final_response(session_id, final)
-        if trace_ctx:
-            try:
-                await trace_ctx.finish(final_response=final)
-            except Exception as trace_err:
-                log.warning("Trace finish failed for session %s: %s", session_id, trace_err)
-    except Exception as e:
-        log.exception("Synthesis failed for session %s", session_id)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("synthesis", "failed", "Synthesis failed.", {"error": str(e)})
-        if trace_ctx:
-            try:
-                await trace_ctx.finish(error=f"Synthesis failed: {e}")
-            except Exception as trace_err:
-                log.warning("Trace finish failed after synthesis error: %s", trace_err)
-        await memory.update_session(session_id, status=SessionStatus.FAILED)
-        return _err("Synthesis failed", 500, str(e))
+        log.exception("Chat pipeline failed")
+        return _err("Chat request failed", 500, str(e))
 
     return _ok(
         ChatResponse(
-            session_id=session_id,
-            response=final,
-            plan_id=plan.plan_id,
-            agents_used=[s.agent_name for s in plan.steps],
-            steps_completed=len(step_results),
+            session_id=result.session_id,
+            response=result.response,
+            plan_id=result.plan_id,
+            agents_used=result.agents_used,
+            steps_completed=result.steps_completed,
+            content_segments=result.content_segments,
         ).model_dump()
+    )
+
+
+@app.route(route="chat/stream", methods=["POST"])
+async def chat_stream(req: func.HttpRequest) -> func.HttpResponse:
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
+
+    try:
+        body = req.get_json()
+    except Exception as e:
+        return _err(f"Could not parse JSON body: {e}")
+
+    try:
+        chat_req = ChatRequest(**body)
+    except Exception as e:
+        return _err(f"Invalid request shape: {e}")
+
+    # Azure Functions Python HttpResponse does not accept async generators; buffer SSE chunks.
+    chunks: list[str] = []
+
+    async def on_event(event: str, data: dict) -> None:
+        chunks.append(sse_events.format_sse(event, data))
+
+    try:
+        result = await chat_pipeline.run_chat_pipeline(
+            chat_req,
+            on_event=on_event,
+            stream_tokens=True,
+        )
+        chunks.append(
+            sse_events.format_sse(
+                "done",
+                {
+                    "session_id": result.session_id,
+                    "response": result.response,
+                    "plan_id": result.plan_id,
+                    "agents_used": result.agents_used,
+                    "steps_completed": result.steps_completed,
+                    "content_segments": result.content_segments,
+                },
+            )
+        )
+    except ValueError as e:
+        chunks.append(sse_events.format_sse("error", {"error": str(e), "status": 400}))
+    except LookupError as e:
+        chunks.append(sse_events.format_sse("error", {"error": str(e), "status": 404}))
+    except Exception as e:
+        log.exception("Streaming chat pipeline failed")
+        chunks.append(
+            sse_events.format_sse(
+                "error",
+                {"error": "Chat request failed", "detail": str(e)},
+            )
+        )
+
+    return func.HttpResponse(
+        body="".join(chunks),
+        status_code=200,
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -261,7 +251,7 @@ async def get_session(req: func.HttpRequest) -> func.HttpResponse:
             return _err("Session not found", 404)
         messages = await memory.get_step_results(session_id)
         payload = {"session": session, "step_results": messages}
-        if _DEMO_STEPS_ENABLED:
+        if _DEMO_STEPS_ENABLED or _STREAM_PROGRESS_ENABLED:
             payload["demo_events"] = await trace_writer.get_demo_events(session_id)
         return _ok(payload)
     except Exception as e:

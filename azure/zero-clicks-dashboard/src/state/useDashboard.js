@@ -3,6 +3,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { orchestratorApi } from "../api/orchestratorClient";
+import { streamChat } from "../api/orchestratorStream";
+
+const CHAT_STREAM_ENABLED =
+  String(import.meta.env.VITE_CHAT_STREAM ?? "true").toLowerCase() !== "false";
 import { mapAgentMeta, truncateFeedMessage } from "../constants/proactiveAgents";
 
 const CUSTOMER_ID = "CUST-1001";
@@ -217,29 +221,95 @@ export function useDashboard() {
     setChatMessages((prev) => [...prev, { role: "user", content: message }]);
     setChatInput("");
     setChatLoading(true);
-    setChatMessages((prev) => [...prev, { role: "thinking" }]);
+    setChatMessages((prev) => [
+      ...prev.filter((m) => m.role !== "thinking"),
+      { role: "assistant", content: "", streaming: true },
+    ]);
+
+    const body = {
+      message,
+      customer_id: CUSTOMER_ID,
+      session_id: sessionId,
+    };
+
+    const finishAssistant = (content, segments, metadata) => {
+      setChatMessages((prev) =>
+        prev
+          .filter((m) => !(m.role === "assistant" && m.streaming))
+          .concat({
+            role: "assistant",
+            content: content || "I processed your request successfully.",
+            segments,
+            metadata,
+          })
+      );
+    };
 
     try {
-      const res = await orchestratorApi.chat(message, CUSTOMER_ID, sessionId);
-      if (res.session_id && !sessionId) setSessionId(res.session_id);
-      setChatMessages((prev) =>
-        prev
-          .filter((m) => m.role !== "thinking")
-          .concat({
-            role: "assistant",
-            content: res.response || "I processed your request successfully.",
-            metadata: { agents: res.agents_used, steps: res.steps_completed },
-          })
-      );
+      if (CHAT_STREAM_ENABLED) {
+        let streamed = "";
+        await streamChat({
+          url: orchestratorApi.chatStreamUrl(),
+          body,
+          onEvent: (event, data) => {
+            if (event === "session" && data.session_id && !sessionId) {
+              setSessionId(data.session_id);
+            }
+            if (event === "token" && data.delta) {
+              streamed += data.delta;
+              setChatMessages((prev) => {
+                const next = prev.filter((m) => m.role !== "thinking");
+                const last = next[next.length - 1];
+                if (last?.streaming) {
+                  return [
+                    ...next.slice(0, -1),
+                    { ...last, content: streamed },
+                  ];
+                }
+                return [
+                  ...next,
+                  { role: "assistant", content: streamed, streaming: true },
+                ];
+              });
+            }
+            if (event === "done") {
+              if (data.session_id && !sessionId) setSessionId(data.session_id);
+              finishAssistant(data.response, data.content_segments, {
+                agents: data.agents_used,
+                steps: data.steps_completed,
+              });
+            }
+            if (event === "error") {
+              throw new Error(data.detail || data.error || "Stream failed");
+            }
+          },
+        });
+      } else {
+        const res = await orchestratorApi.chat(message, CUSTOMER_ID, sessionId);
+        if (res.session_id && !sessionId) setSessionId(res.session_id);
+        finishAssistant(res.response, res.content_segments, {
+          agents: res.agents_used,
+          steps: res.steps_completed,
+        });
+      }
     } catch (err) {
-      setChatMessages((prev) =>
-        prev
-          .filter((m) => m.role !== "thinking")
-          .concat({
-            role: "assistant",
-            content: `I encountered an issue connecting to the orchestrator: ${err.message}. Please try again.`,
-          })
-      );
+      try {
+        const res = await orchestratorApi.chat(message, CUSTOMER_ID, sessionId);
+        if (res.session_id && !sessionId) setSessionId(res.session_id);
+        finishAssistant(res.response, res.content_segments, {
+          agents: res.agents_used,
+          steps: res.steps_completed,
+        });
+      } catch (fallbackErr) {
+        setChatMessages((prev) =>
+          prev
+            .filter((m) => !(m.streaming && m.role === "assistant"))
+            .concat({
+              role: "assistant",
+              content: `I encountered an issue connecting to the orchestrator: ${fallbackErr.message}. Please try again.`,
+            })
+        );
+      }
     } finally {
       setChatLoading(false);
     }

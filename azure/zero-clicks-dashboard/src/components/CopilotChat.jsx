@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from "react";
+import { MessageContent } from "./MessageContent";
 
 // Suggested quick questions
 const QUICK_PROMPTS = [
@@ -80,7 +81,16 @@ export function CopilotChat({ chatMessages, chatInput, setChatInput, chatLoading
                 <div className="chat-avatar assistant">✨</div>
               )}
               <div style={{ display: "flex", flexDirection: "column", gap: 4, width: "100%" }}>
-                <div className={`chat-bubble ${msg.role}`}>{msg.content}</div>
+                <div className={`chat-bubble ${msg.role}`}>
+                  {msg.role === "assistant" ? (
+                    <MessageContent content={msg.content} segments={msg.segments} />
+                  ) : (
+                    msg.content
+                  )}
+                  {msg.streaming && !msg.content && (
+                    <span className="streaming-cursor">▋</span>
+                  )}
+                </div>
                 {msg.metadata && msg.metadata.agents && msg.metadata.agents.length > 0 && (
                   <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginLeft: 4 }}>
                     Powered by: {msg.metadata.agents.join(", ")}

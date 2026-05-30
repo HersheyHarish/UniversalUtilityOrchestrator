@@ -26,6 +26,38 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+
+@dataclass
+class RequestSchemaField:
+    name: str
+    description: str = ""
+    required: bool = False
+    field_type: str = "string"
+    default: Any = None
+    nested_fields: list["RequestSchemaField"] = field(default_factory=list)
+
+
+def fields_from_config(request_schema: dict[str, Any]) -> list[RequestSchemaField]:
+    """Build RequestSchemaField list from registry invocation_config.request_schema."""
+    raw_fields = request_schema.get("fields") or []
+    result: list[RequestSchemaField] = []
+    for f in raw_fields:
+        if isinstance(f, RequestSchemaField):
+            result.append(f)
+            continue
+        nested_raw = f.get("nested_fields") or []
+        result.append(
+            RequestSchemaField(
+                name=f["name"],
+                description=f.get("description", ""),
+                required=bool(f.get("required", False)),
+                field_type=f.get("type") or f.get("field_type") or "string",
+                default=f.get("default"),
+                nested_fields=fields_from_config({"fields": nested_raw}),
+            )
+        )
+    return result
+
 log = logging.getLogger(__name__)
 
 _OAI_ENDPOINT   = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
@@ -73,15 +105,10 @@ class SchemaMapError(Exception):
 # OpenAI client
 # =============================================================================
 
-async def _get_client() -> AsyncOpenAI:
-    global _openai_client
-    if _openai_client:
-        return _openai_client
-    # Re-use the Key Vault helper from planner.py
-    from planner import _get_secret
-    api_key = await _get_secret(os.environ.get("OPENAI_SECRET_NAME", "openai-api-key"))
-    _openai_client = AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key)
-    return _openai_client
+async def _get_client() -> AsyncOpenAI | Any:
+    from openai_client import get_chat_client, is_foundry_endpoint
+
+    return await get_chat_client("default")
 
 
 # =============================================================================
