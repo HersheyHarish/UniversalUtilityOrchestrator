@@ -80,6 +80,12 @@ desktop.ini
 *.kubeconfig
 kubeconfig
 
+# ── Node / front-end ─────────────────────────────────────────────────────────
+node_modules/
+
+# ── Local agent registry (may contain deployed endpoint URLs) ────────────────
+src/core/agents.json
+
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.bak
 *.tmp
