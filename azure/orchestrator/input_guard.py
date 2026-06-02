@@ -79,3 +79,52 @@ def get_guardrails() -> InputGuardrails:
     if _default_guard is None:
         _default_guard = InputGuardrails()
     return _default_guard
+
+
+_SCENARIO_GUARD_SYSTEM = """You are a classification assistant for a utility company support platform.
+Your task is to determine whether the user's message is related to the utility customer support scenario.
+The utility customer support scenario covers:
+- Customer accounts, billing, invoices, billing cycles, charges, payment history, and payment policies.
+- Electricity, gas, water, or general energy utility services.
+- Power outages, local area grid issues, restoration times, and outage history.
+- Household energy consumption, electricity usage patterns, spikes, anomalies, and weather/temperature context impacting usage.
+- Solar panel performance, solar generation, solar credits, true-ups, and solar underperformance/credit loss.
+- Bill forecasting, mid-cycle projections, billing shock warnings, and tariff details.
+- Relief, payment, or enrollment support programs (e.g. Level Pay, Time-of-Use, low-income assistance, payment plans, due-date adjustments).
+- Delinquency risk, shutoff warnings, payment difficulties, and financial hardships.
+- Basic, polite conversational text that is part of a utility support interaction (e.g., greetings like "hello", "hi", "thank you", "thanks", "bye", "are you there", or positive/negative feedback about the utility service).
+
+If the user's message is clearly unrelated to this utility scenario (for example, asking about skincare routines, programming code, general recipes, medical advice, generic history, writing stories, general trivia/questions not linked to their utility account or utilities), classify it as UNRELATED.
+
+Respond with exactly "RELATED" or "UNRELATED" on a single line. Do not include any other text or explanation.
+"""
+
+
+async def is_query_related_to_scenario(user_query: str) -> bool:
+    import openai_client
+
+    sanitized = user_query.strip()
+    if not sanitized:
+        return True
+
+    try:
+        client = await openai_client.get_chat_client("input_guard")
+        model = openai_client.model_name_for_role("default")
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SCENARIO_GUARD_SYSTEM},
+                {"role": "user", "content": sanitized},
+            ],
+            temperature=0.0,
+            max_completion_tokens=5,
+        )
+        content = (response.choices[0].message.content or "").strip().upper()
+        return "UNRELATED" not in content
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).warning("Scenario check failed (defaulting to True): %s", e)
+        return True
+

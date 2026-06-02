@@ -7,11 +7,13 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
+from markdown_normalize import normalize_markdown
+
 SegmentType = Literal["prose", "code", "ascii"]
 
 _BOX_DRAWING_RE = re.compile(r"[\u2500-\u257F\u2550-\u256C]")
 _ASCII_DENSE_RE = re.compile(r"^[\s|+\-=_#*./\\]{8,}$", re.MULTILINE)
-_FENCE_RE = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
+_FENCE_RE = re.compile(r"```([^\n`]*)\n?([\s\S]*?)```", re.DOTALL)
 
 
 def _is_ascii_block(text: str) -> bool:
@@ -61,7 +63,8 @@ def _segment_prose(prose: str) -> list[dict[str, Any]]:
 
 
 def format_chat_response(text: str) -> dict[str, Any]:
+    normalized = normalize_markdown(text)
     return {
-        "response": text,
-        "content_segments": segment_response(text),
+        "response": normalized,
+        "content_segments": segment_response(normalized),
     }

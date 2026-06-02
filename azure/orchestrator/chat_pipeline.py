@@ -18,6 +18,7 @@ import planner
 import response_formatter
 import synthesizer
 import trace_writer
+from markdown_normalize import normalize_markdown
 from models import ChatRequest, SessionDoc, SessionStatus
 
 log = logging.getLogger(__name__)
@@ -62,9 +63,15 @@ async def run_chat_pipeline(
 
     if chat_req.session_id:
         existing = await memory.get_session(chat_req.session_id)
-        if not existing:
-            raise LookupError(f"Session '{chat_req.session_id}' not found")
-        session = SessionDoc(**{k: v for k, v in existing.items() if k in SessionDoc.model_fields})
+        if existing:
+            session = SessionDoc(**{k: v for k, v in existing.items() if k in SessionDoc.model_fields})
+        else:
+            session = SessionDoc(
+                id=chat_req.session_id,
+                user_message=user_message,
+                customer_id=chat_req.customer_id,
+            )
+            session = await memory.create_session(session)
     else:
         session = SessionDoc(
             user_message=user_message,
@@ -73,6 +80,12 @@ async def run_chat_pipeline(
         session = await memory.create_session(session)
 
     session_id = session.id
+
+    transcript: list[dict[str, str]] = []
+    try:
+        transcript = await memory.get_session_transcript(session_id)
+    except Exception as exc:
+        log.warning("Could not load session transcript for %s: %s", session_id, exc)
 
     await memory.save_user_message(session_id, user_message)
     await _emit(on_event, "session", {"session_id": session_id})
@@ -96,11 +109,33 @@ async def run_chat_pipeline(
 
     try:
         await stage_event("request", "running", "Received user request.")
+
+        is_related = await input_guard.is_query_related_to_scenario(user_message)
+        if not is_related:
+            response_text = "It isn't related to scenario and cannot answer this question."
+            await stage_event("request", "completed", "Request completed (unrelated query).")
+            await memory.save_final_response(session_id, response_text)
+            formatted = response_formatter.format_chat_response(response_text)
+            if trace_ctx:
+                try:
+                    await trace_ctx.finish(final_response=response_text)
+                except Exception as trace_err:
+                    log.warning("Trace finish failed: %s", trace_err)
+            return PipelineResult(
+                session_id=session_id,
+                response=formatted["response"],
+                plan_id=None,
+                agents_used=[],
+                steps_completed=0,
+                content_segments=formatted["content_segments"],
+            )
+
         await stage_event("planning", "running", "Building execution plan.")
         plan = await planner.build_plan(
             user_message,
             chat_req.customer_id,
             session_id=session_id,
+            transcript=transcript,
         )
         await memory.save_plan(session_id, plan)
         if trace_ctx:
@@ -124,19 +159,22 @@ async def run_chat_pipeline(
             payload["error"] = error
         await _emit(on_event, "step", payload)
 
+    step_results: dict[int, dict] = {}
     try:
         await stage_event("execution", "running", "Executing planned steps.")
 
         async def on_step_progress(step_id: int, agent_name: str, status: str, **extra: Any) -> None:
             await step_event(step_id, agent_name, status, extra.get("latency_ms"), extra.get("error"))
 
-        step_results = await executor.execute_plan(
-            plan,
-            session_id,
-            chat_req.customer_id,
-            trace_ctx=trace_ctx,
-            on_step_progress=on_step_progress if on_event else None,
-        )
+        if plan.steps:
+            step_results = await executor.execute_plan(
+                plan,
+                session_id,
+                chat_req.customer_id,
+                trace_ctx=trace_ctx,
+                on_step_progress=on_step_progress if on_event else None,
+                transcript=transcript,
+            )
         await stage_event("execution", "completed", f"Completed {len(step_results)} step(s).")
     except Exception as e:
         await stage_event("execution", "failed", "Execution failed.", {"error": str(e)})
@@ -159,6 +197,7 @@ async def run_chat_pipeline(
             plan,
             step_results,
             user_message,
+            transcript=transcript,
             on_token=on_token if stream_tokens else None,
         )
 
@@ -173,10 +212,12 @@ async def run_chat_pipeline(
                 plan,
                 step_results,
                 user_message,
+                transcript=transcript,
                 on_token=on_token if stream_tokens else None,
                 repair_hint=issues,
             )
 
+        final = normalize_markdown(final)
         await memory.save_final_response(session_id, final)
         formatted = response_formatter.format_chat_response(final)
 
@@ -190,7 +231,7 @@ async def run_chat_pipeline(
 
         return PipelineResult(
             session_id=session_id,
-            response=final,
+            response=formatted["response"],
             plan_id=plan.plan_id,
             agents_used=[s.agent_name for s in plan.steps],
             steps_completed=len(step_results),

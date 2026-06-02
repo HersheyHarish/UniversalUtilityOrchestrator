@@ -257,12 +257,30 @@ async def get_conversation_history(session_id: str, limit: int = 10) -> list[dic
         for row in rows
     ]
 
-async def get_conversation_history(session_id: str, limit: int = 8) -> list[dict[str, str]]:
-    """Recent user/assistant turns for multi-turn planning."""
+def _transcript_limits() -> tuple[int, int]:
+    max_turns = int(os.environ.get("ORCHESTRATOR_TRANSCRIPT_MAX_TURNS", "20"))
+    max_chars = int(os.environ.get("ORCHESTRATOR_TRANSCRIPT_MAX_CHARS", "12000"))
+    return max_turns, max_chars
+
+
+async def get_session_transcript(
+    session_id: str,
+    *,
+    max_turns: int | None = None,
+    max_chars_per_turn: int | None = None,
+    exclude_current_user: bool = False,
+) -> list[dict[str, str]]:
+    """
+    Chronological user/assistant turns from the messages container.
+    """
+    default_turns, default_chars = _transcript_limits()
+    turn_limit = max_turns if max_turns is not None else default_turns
+    char_limit = max_chars_per_turn if max_chars_per_turn is not None else default_chars
+
     rows = await _query(
         "messages",
         "SELECT c.type, c.content, c.created_at FROM c "
-        "WHERE c.session_id = @sid AND c.type IN (@user, @final) "
+        "WHERE c.session_id = @sid AND (c.type = @user OR c.type = @final) "
         "ORDER BY c.created_at",
         params=[
             {"name": "@sid", "value": session_id},
@@ -271,13 +289,33 @@ async def get_conversation_history(session_id: str, limit: int = 8) -> list[dict
         ],
         pk=session_id,
     )
-    history: list[dict[str, str]] = []
-    for row in rows[-limit:]:
+
+    transcript: list[dict[str, str]] = []
+    for row in rows:
         role = "user" if row.get("type") == MessageType.USER_INPUT else "assistant"
         content = (row.get("content") or "").strip()
-        if content:
-            history.append({"role": role, "content": content[:500]})
-    return history
+        if not content:
+            continue
+        entry: dict[str, str] = {
+            "role": role,
+            "content": content[:char_limit],
+            "created_at": row.get("created_at") or "",
+        }
+        transcript.append(entry)
+
+    if exclude_current_user and transcript and transcript[-1]["role"] == "user":
+        transcript = transcript[:-1]
+
+    if turn_limit > 0 and len(transcript) > turn_limit:
+        transcript = transcript[-turn_limit:]
+
+    return transcript
+
+
+async def get_conversation_history(session_id: str, limit: int = 8) -> list[dict[str, str]]:
+    """Backward-compatible wrapper for planner-style history."""
+    rows = await get_session_transcript(session_id, max_turns=limit)
+    return [{"role": r["role"], "content": r["content"]} for r in rows]
 
 
 # ── Agent registry ────────────────────────────────────────────────────────────

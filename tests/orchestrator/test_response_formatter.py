@@ -17,13 +17,9 @@ def test_fenced_ascii_block():
 def test_plain_prose():
     segments = segment_response("Hello customer.")
     assert segments[0]["type"] == "prose"
-<<<<<<< HEAD
-
 
 def test_fence_without_lang_newline():
     text = "Title\n```text\n| A | B |\n|---|---|\n```\n"
     segments = segment_response(text)
     types = [s["type"] for s in segments]
     assert "code" in types or "ascii" in types
-=======
->>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)

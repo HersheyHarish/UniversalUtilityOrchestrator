@@ -138,7 +138,7 @@ services:
       - VITE_ORCHESTRATOR_URL=http://host.docker.internal:7071
       - VITE_FUNC_CODE=
       - VITE_DEMO_STEPS=true
-      - VITE_CHAT_STREAM=true
+      - VITE_CHAT_STREAM=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -156,7 +156,7 @@ services:
       - "5175:3000"
     environment:
       - VITE_ORCHESTRATOR_URL=http://host.docker.internal:7071
-      - VITE_CHAT_STREAM=true
+      - VITE_CHAT_STREAM=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

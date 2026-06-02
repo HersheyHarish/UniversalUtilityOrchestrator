@@ -3,10 +3,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { orchestratorApi } from "../api/orchestratorClient";
-import { streamChat } from "../api/orchestratorStream";
-
-const CHAT_STREAM_ENABLED =
-  String(import.meta.env.VITE_CHAT_STREAM ?? "true").toLowerCase() !== "false";
 import { mapAgentMeta, truncateFeedMessage } from "../constants/proactiveAgents";
 
 const CUSTOMER_ID = "CUST-1001";
@@ -239,23 +235,14 @@ export function useDashboard() {
           })
       );
     } catch (err) {
-      try {
-        const res = await orchestratorApi.chat(message, CUSTOMER_ID, sessionId);
-        if (res.session_id && !sessionId) setSessionId(res.session_id);
-        finishAssistant(res.response, res.content_segments, {
-          agents: res.agents_used,
-          steps: res.steps_completed,
-        });
-      } catch (fallbackErr) {
-        setChatMessages((prev) =>
-          prev
-            .filter((m) => !(m.streaming && m.role === "assistant"))
-            .concat({
-              role: "assistant",
-              content: `I encountered an issue connecting to the orchestrator: ${fallbackErr.message}. Please try again.`,
-            })
-        );
-      }
+      setChatMessages((prev) =>
+        prev
+          .filter((m) => m.role !== "thinking")
+          .concat({
+            role: "assistant",
+            content: `I encountered an issue connecting to the orchestrator: ${err.message}. Please try again.`,
+          })
+      );
     } finally {
       setChatLoading(false);
     }

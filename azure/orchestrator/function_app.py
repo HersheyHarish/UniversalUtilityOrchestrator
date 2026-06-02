@@ -38,6 +38,7 @@ _default_level = "ANONYMOUS" if os.environ.get("USE_LOCAL_EMULATORS", "").lower(
 _configured_level = os.environ.get("ORCHESTRATOR_HTTP_AUTH_LEVEL", _default_level).upper()
 _DEMO_STEPS_ENABLED = os.environ.get("ORCHESTRATOR_DEMO_STEPS", "").lower() == "true"
 _STREAM_PROGRESS_ENABLED = os.environ.get("ORCHESTRATOR_STREAM_PROGRESS", "").lower() == "true"
+_CHAT_STREAM_ENABLED = os.environ.get("ORCHESTRATOR_CHAT_STREAM_ENABLED", "").lower() == "true"
 
 app = func.FunctionApp(http_auth_level=_AUTH_LEVEL_BY_NAME.get(_configured_level, func.AuthLevel.FUNCTION))
 
@@ -416,6 +417,12 @@ async def chat_stream(req: func.HttpRequest) -> func.HttpResponse:
     if runtime_err:
         return runtime_err
 
+    if not _CHAT_STREAM_ENABLED:
+        return _err(
+            "Streaming chat is disabled. Use POST /api/chat instead.",
+            404,
+        )
+
     try:
         body = req.get_json()
     except Exception as e:
@@ -491,7 +498,12 @@ async def get_session(req: func.HttpRequest) -> func.HttpResponse:
         if not session:
             return _err("Session not found", 404)
         messages = await memory.get_step_results(session_id)
-        payload = {"session": session, "step_results": messages}
+        transcript = await memory.get_session_transcript(session_id)
+        payload = {
+            "session": session,
+            "step_results": messages,
+            "transcript": transcript,
+        }
         if _DEMO_STEPS_ENABLED or _STREAM_PROGRESS_ENABLED:
             payload["demo_events"] = await trace_writer.get_demo_events(session_id)
         return _ok(payload)
@@ -603,4 +615,179 @@ async def ack_alert(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         log.exception("ack_alert failed for alert %s", alert_id)
         return _err("Failed to acknowledge alert", 500, str(e))
+
+
+@app.route(route="agents", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+async def list_agents(req: func.HttpRequest) -> func.HttpResponse:
+    """Return the list of active agents for the demo UI."""
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
+    try:
+        agents = await memory.get_active_agents()
+        simplified = [
+            {
+                "name": a.get("name", "Unknown"),
+                "description": a.get("description", ""),
+                "status": a.get("status", "active"),
+            }
+            for a in agents
+        ]
+        return _ok({"agents": simplified, "count": len(simplified)})
+    except Exception as e:
+        log.exception("list_agents failed")
+        return _err("Failed to load agents", 500, str(e))
+
+
+@app.route(route="email_agent", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+async def email_agent(req: func.HttpRequest) -> func.HttpResponse:
+    """Mock Email Notification Agent API endpoint."""
+    try:
+        body = req.get_json()
+    except Exception as e:
+        return _err(f"Could not parse JSON body: {e}")
+
+    customer_id = body.get("customer_id") or "CUST-1001"
+    context = body.get("context") or {}
+    dep_outputs = context.get("dependency_outputs") or {}
+
+    from datetime import datetime, timezone
+    
+    # Look for outage and weather summaries in dependent outputs
+    outage_details = "An active service disruption is affecting your neighborhood."
+    weather_details = "Please monitor local weather advisories."
+
+    for k, v in dep_outputs.items():
+        val_str = str(v)
+        if "outage" in k.lower() or "disruption" in k.lower():
+            outage_details = val_str
+        elif "weather" in k.lower() or "temp" in k.lower():
+            weather_details = val_str
+
+    subject = "⚠️ NexusGas Service Alert: Outage Detected & Action Plan"
+    email_body = (
+        f"Dear customer {customer_id},\n\n"
+        f"We have detected a service outage affecting your service area. "
+        "Here are the active details and your customized action plan:\n\n"
+        f"🔌 OUTAGE STATUS DETAILS:\n{outage_details}\n\n"
+        f"🌡️ LOCAL WEATHER CONTEXT:\n{weather_details}\n\n"
+        "📋 SAFETY & PREPAREDNESS TIPS:\n"
+        "• Keep refrigerator and freezer doors closed as much as possible.\n"
+        "• Turn off or disconnect major appliances to prevent surge damage when power is restored.\n"
+        "• Avoid downed utility lines and report any hazards immediately.\n\n"
+        "Our operations crew has been dispatched to coordinate repairs. We appreciate your patience.\n\n"
+        "NexusGas Utility Support Operations"
+    )
+
+    response_payload = {
+        "agent": "email_notification_agent",
+        "status": "completed",
+        "result": f"Notification email successfully dispatched to customer {customer_id}.",
+        "recipient": "james.doe@example.com" if customer_id == "CUST-1001" else "customer@example.com",
+        "subject": subject,
+        "body": email_body,
+        "sent_at": datetime.now(timezone.utc).isoformat()
+    }
+    return _ok(response_payload)
+
+
+@app.route(route="simulate-outage", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+async def simulate_outage(req: func.HttpRequest) -> func.HttpResponse:
+    """Trigger an outage simulation: update dataset and execute orchestrator chat pipeline."""
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
+
+    try:
+        body = req.get_json()
+    except Exception:
+        body = {}
+
+    customer_id = body.get("customer_id") or "CUST-1001"
+
+    # Step 1: Write an active simulated outage to the JSON dataset
+    try:
+        from datetime import datetime, timedelta, timezone
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        outage_path = os.environ.get("OUTAGE_INPUT_FILE")
+        
+        if not outage_path:
+            curr = base_dir
+            for _ in range(5):
+                candidate = os.path.join(curr, "src", "data", "demo_outages.json")
+                if os.path.exists(candidate):
+                    outage_path = candidate
+                    break
+                curr = os.path.dirname(curr)
+        
+        if not outage_path:
+            outage_path = "/Users/harishsundarakumar/Documents/UniversalUtilityOrchestrator/UniversalUtilityAgent/src/data/demo_outages.json"
+
+        if os.path.exists(outage_path):
+            with open(outage_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Simulated central time zone (Austin -5:00)
+            now_tz = datetime.now(timezone(timedelta(hours=-5)))
+            start_str = now_tz.isoformat()
+            end_str = (now_tz + timedelta(hours=4)).isoformat()
+            
+            simulated_event = {
+                "outage_id": f"OUT-SIMULATED-{int(datetime.now().timestamp())}",
+                "event_start": start_str,
+                "event_end": end_str,
+                "duration_minutes": 240,
+                "cause": "severe_weather",
+                "scope": "regional",
+                "estimated_customers_affected": 15000,
+                "source": "simulation"
+            }
+            
+            if "outages" not in data:
+                data["outages"] = {}
+            if "78712" not in data["outages"]:
+                data["outages"]["78712"] = []
+                
+            # Keep the dataset clean: filter out older simulated outages
+            data["outages"]["78712"] = [
+                evt for evt in data["outages"]["78712"] 
+                if not str(evt.get("outage_id")).startswith("OUT-SIMULATED-")
+            ]
+            data["outages"]["78712"].append(simulated_event)
+            
+            with open(outage_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                
+            log.info("Simulated outage written to dataset successfully.")
+    except Exception as e:
+        log.exception("Simulation dataset update failed: %s", e)
+
+    # Step 2: Invoke the orchestrator
+    try:
+        from models import ChatRequest
+        prompt = (
+            f"An active outage alert was triggered for customer {customer_id}. "
+            "First, check if there is an active outage via the outage detection agent. "
+            "Second, retrieve active weather contexts for the area. "
+            "Third, call the email notification agent to send an outage safety alert email."
+        )
+        chat_req = ChatRequest(
+            message=prompt,
+            customer_id=customer_id,
+            session_id=None
+        )
+        result = await chat_pipeline.run_chat_pipeline(chat_req)
+        
+        return _ok({
+            "status": "completed",
+            "session_id": result.session_id,
+            "response": result.response,
+            "plan_id": result.plan_id,
+            "agents_used": result.agents_used,
+            "steps_completed": result.steps_completed,
+            "content_segments": result.content_segments,
+        })
+    except Exception as e:
+        log.exception("Orchestrator pipeline failed inside simulation trigger: %s", e)
+        return _err("Simulation pipeline failed", 500, str(e))
 

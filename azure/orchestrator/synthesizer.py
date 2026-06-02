@@ -17,7 +17,6 @@ from models import ExecutionPlan, AgentResponse
 
 log = logging.getLogger(__name__)
 
-<<<<<<< HEAD
 _OAI_ENDPOINT_RAW = os.environ["AZURE_OPENAI_ENDPOINT"]
 _OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
@@ -30,9 +29,6 @@ async def _get_secret(name: str) -> str:
 
 
 _REACTIVE_SYSTEM = """You are a response synthesis agent for a utility company support platform.
-=======
-_SYSTEM = """You are a response synthesis agent for a utility company support platform.
->>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 You receive outputs from multiple specialist agents and combine them into one
 clear, empathetic, and actionable response for the customer.
 
@@ -44,20 +40,19 @@ Guidelines:
 - Integrate all relevant agent findings naturally.
 - Be concise but complete.
 - Keep tone warm and professional.
-- End with 1-3 concrete next steps the customer can take.
-<<<<<<< HEAD
-- Do NOT mention agent names or internal agent architecture or system details.
-=======
+- End with 1-3 concrete next steps when appropriate. These next steps must be strictly grounded in the capabilities of the actual registry agents (e.g., billing_agent for invoices/policies, anomaly_detection_agent for usage spikes, solar_performance_credit_loss_agent for solar performance, bill_shock_forecast_agent for projections, program_enrollment_simulation_agent for Level Pay or TOU simulation, outage_detection_agent for power outages, payment_risk_hardship_agent for shutoff warnings/delinquency risk). Do NOT suggest arbitrary follow-ups or general support numbers if a specialist registry agent can handle it.
 - Do NOT mention internal agent architecture or system details.
-- Put ASCII diagrams, tables, and box drawings inside fenced code blocks (```).
-- Preserve formatting inside code fences exactly as written.
->>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
+- Use GitHub-flavored markdown: ## and ### headings, - bullet lists, 1. numbered lists.
+- For ASCII tables or box drawings use a single fenced code block with ```text on its own line.
+- Do not mix GFM tables and ASCII box tables in the same answer.
+- Do not invent citation brackets or "Sources:" lines unless the agent outputs included them.
+- When the customer refers to numbered items from a prior assistant message (e.g. "answer 1 and 2"),
+  use the prior conversation transcript to answer; do not ask them to repeat information already given.
+>>>>>>> c220f81 (Added new demo ui for chatbot, updated guardrails for orchestrator, added markdown normalizer for orchestrator responses)
 """
 
 _PROACTIVE_SYSTEM = """You are a utility company notification writer.
 Combine agent-gathered data into a clear, actionable proactive notification.
-
-<<<<<<< HEAD
 Rules:
 - Lead with the key fact (what happened or requires attention).
 - State the impact on the customer in one sentence.
@@ -68,14 +63,6 @@ Rules:
 - Do NOT mention agent names or internal systems.
 - Do NOT add generic disclaimers."""
 
-async def synthesize(
-    plan:         ExecutionPlan,
-    step_results: dict[int, AgentResponse],
-    message: str,
-    trigger_type: str = "reactive",
-    chat_history: list[dict] | None = None,
-    args: dict | None = None
-=======
 def _step_result_text(step_payload: object) -> str:
     if isinstance(step_payload, dict):
         return str(step_payload.get("result") or "")
@@ -89,16 +76,34 @@ def _agent_name_for_step(plan: ExecutionPlan, step_id: int) -> str:
     return "Agent"
 
 
+def _format_transcript(transcript: list[dict[str, str]] | None) -> str:
+    if not transcript:
+        return ""
+    lines = []
+    for turn in transcript:
+        role = turn.get("role", "user")
+        content = (turn.get("content") or "").strip()
+        if content:
+            lines.append(f"{role}: {content}")
+    if not lines:
+        return ""
+    return "Prior conversation (use for follow-ups):\n" + "\n\n".join(lines) + "\n\n"
+
+
 async def synthesize(
     plan: ExecutionPlan,
     step_results: dict[int, dict],
     user_message: str,
-    *,
+    trigger_type: str = "reactive",
+    chat_history: list[dict] | None = None,
+    args: dict | None = None,
+    transcript: list[dict[str, str]] | None = None,
     on_token: Callable[[str], Awaitable[None]] | None = None,
     repair_hint: str | None = None,
->>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 ) -> str:
-    if not step_results:
+    transcript_block = _format_transcript(transcript)
+
+    if not step_results and not transcript_block:
         return (
             "I was unable to retrieve the information needed to answer your question "
             "right now. Please try again in a moment, or contact our support line at "
@@ -110,58 +115,28 @@ async def synthesize(
         for i, (_, r) in enumerate(sorted(step_results.items()))
     ]
 
-<<<<<<< HEAD
-    if trigger_type == "proactive":
-        system_prompt = _PROACTIVE_SYSTEM
-        user_prompt = "\n".join(filter(None, [
-            f"Event type: {args.get('event_type')}"    if args.get('event_type') else None,
-            f"Severity: {args.get('severity')}"        if args.get('severity')   else None,
-            f"Original notification: {args.get('original_message') or args.get('user_message')}",
-            f"\nAgent-gathered context:\n{agent_sections}",
-            f"\nSynthesis guidance: {plan.synthesis_instruction}",
-            "\nWrite the enriched customer notification now.",
-        ]))
-    else:
-        if chat_history:
-            history_sections = [
-                f"{m['role'].capitalize()}: {m['content']}"
-                for m in chat_history
-            ]
-        system_prompt = _REACTIVE_SYSTEM
-        user_prompt = "\n".join(filter(None, [
-            f"Original customer question: {message}",
-            f"\nAgent outputs:\n{agent_sections}",
-            f"\nHistorical Messages: {chr(10).join(history_sections)}" if chat_history else None,
-            f"\nSynthesis instruction: {plan.synthesis_instruction}",
-            "\nWrite the final response now.",
-        ]))
-=======
     synthesis_prompt = (
+        f"{transcript_block}"
         f"Original customer question: {user_message}\n\n"
         f"Synthesis instruction: {plan.synthesis_instruction}\n\n"
-        f"Agent outputs:\n" + "\n\n".join(agent_sections)
     )
+    if agent_sections:
+        synthesis_prompt += f"Agent outputs:\n" + "\n\n".join(agent_sections)
+    else:
+        synthesis_prompt += (
+            "No new agent outputs this turn. Answer from the prior conversation and "
+            "synthesis instruction only.\n"
+        )
+
     if repair_hint:
         synthesis_prompt += (
             f"\n\nIMPORTANT: The previous draft had quality issues: {repair_hint}. "
-            "Fix these while staying faithful to agent outputs only."
+            "Fix these while staying faithful to agent outputs and transcript only."
         )
->>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 
     client = await get_chat_client("synthesizer")
     model = model_name_for_role("default")
 
-<<<<<<< HEAD
-    completion = await client.chat.completions.create(
-        model=_OAI_DEPLOYMENT,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.3,
-        max_completion_tokens=1000,
-    )
-=======
     messages = [
         {"role": "system", "content": _SYSTEM},
         {"role": "user", "content": synthesis_prompt},
@@ -172,7 +147,7 @@ async def synthesize(
             model=model,
             messages=messages,
             temperature=0.5,
-            max_completion_tokens=1000,
+            max_completion_tokens=2500,
             stream=True,
         )
         parts: list[str] = []
@@ -187,10 +162,9 @@ async def synthesize(
             model=model,
             messages=messages,
             temperature=0.5,
-            max_completion_tokens=1000,
+            max_completion_tokens=2500,
         )
         content = completion.choices[0].message.content
->>>>>>> 5efa666 (feat(orchestrator): v1.2 streaming, parallel execution, and Foundry OpenAI fix)
 
     return content if isinstance(content, str) and content.strip() else (
         "I could not generate a response. Please try again or contact support."
