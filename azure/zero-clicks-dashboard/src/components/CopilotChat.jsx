@@ -87,9 +87,6 @@ export function CopilotChat({ chatMessages, chatInput, setChatInput, chatLoading
                   ) : (
                     msg.content
                   )}
-                  {msg.streaming && !msg.content && (
-                    <span className="streaming-cursor">▋</span>
-                  )}
                 </div>
                 {msg.metadata && msg.metadata.agents && msg.metadata.agents.length > 0 && (
                   <div style={{ fontSize: 10, color: "var(--text-tertiary)", marginLeft: 4 }}>

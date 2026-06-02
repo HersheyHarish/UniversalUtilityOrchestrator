@@ -1,79 +1,6 @@
 import React from "react";
-
-const AMOUNT_RE = /(\$[\d,]+(?:\.\d{2})?)/g;
-
-function renderInline(text) {
-  const segments = [];
-  let remaining = String(text);
-  let key = 0;
-
-  while (remaining.length > 0) {
-    const boldStart = remaining.indexOf("**");
-    if (boldStart === -1) {
-      const parts = remaining.split(AMOUNT_RE);
-      parts.forEach((p) => {
-        if (AMOUNT_RE.test(p)) {
-          AMOUNT_RE.lastIndex = 0;
-          segments.push(
-            <span key={key++} className="bill-amount">
-              {p}
-            </span>
-          );
-        } else if (p) segments.push(p);
-      });
-      break;
-    }
-    if (boldStart > 0) segments.push(remaining.slice(0, boldStart));
-    remaining = remaining.slice(boldStart);
-    const boldEnd = remaining.indexOf("**", 2);
-    if (boldEnd === -1) {
-      segments.push(remaining);
-      break;
-    }
-    segments.push(<strong key={key++}>{remaining.slice(2, boldEnd)}</strong>);
-    remaining = remaining.slice(boldEnd + 2);
-  }
-  return segments.length ? segments : text;
-}
-
-function renderProse(content) {
-  const lines = String(content).split("\n");
-  const nodes = [];
-  let listItems = [];
-  let key = 0;
-
-  const flushList = () => {
-    if (!listItems.length) return;
-    nodes.push(
-      <ul key={`ul-${key++}`} className="message-list">
-        {listItems.map((item, i) => (
-          <li key={i}>{renderInline(item)}</li>
-        ))}
-      </ul>
-    );
-    listItems = [];
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^[-•*]\s+/.test(trimmed)) {
-      listItems.push(trimmed.replace(/^[-•*]\s+/, ""));
-      continue;
-    }
-    flushList();
-    if (!trimmed) {
-      nodes.push(<br key={`br-${key++}`} />);
-    } else {
-      nodes.push(
-        <p key={`p-${key++}`} className="message-paragraph">
-          {renderInline(line)}
-        </p>
-      );
-    }
-  }
-  flushList();
-  return nodes;
-}
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function MessageContent({ content, segments }) {
   const blocks =
@@ -95,8 +22,8 @@ export default function MessageContent({ content, segments }) {
           );
         }
         return (
-          <div key={idx} className="message-prose">
-            {renderProse(seg.content)}
+          <div key={idx} className="message-prose markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.content || ""}</ReactMarkdown>
           </div>
         );
       })}

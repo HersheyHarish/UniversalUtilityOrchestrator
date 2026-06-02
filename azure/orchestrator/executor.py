@@ -90,6 +90,7 @@ def _build_context(
     customer_id: str | None,
     prior_outputs: dict[int, str],
     context_note: str,
+    transcript: list[dict[str, str]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     ctx: dict[str, Any] = {
         "task": task,
@@ -105,6 +106,13 @@ def _build_context(
     if context_note:
         context_dict["planner_note"] = context_note
     ctx["context"] = context_dict
+
+    history_slice: list[dict[str, str]] = []
+    if transcript:
+        history_slice = [{"role": t["role"], "content": t["content"]} for t in transcript[-12:]]
+    ctx["conversation_history"] = history_slice
+    context_dict["conversation_history"] = history_slice
+
     return ctx, context_dict
 
 
@@ -115,6 +123,7 @@ async def _build_body(
     customer_id: str | None,
     prior_outputs: dict[int, str],
     context_note: str,
+    transcript: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
     Build the HTTP request body.
@@ -122,7 +131,9 @@ async def _build_body(
     Priority: body_template → request_schema (LLM mapper) → legacy AgentRequest.
     """
     body_template = invocation_config.get("body_template") or {}
-    ctx, context_dict = _build_context(task, session_id, customer_id, prior_outputs, context_note)
+    ctx, context_dict = _build_context(
+        task, session_id, customer_id, prior_outputs, context_note, transcript
+    )
 
     if body_template:
         return _render_body(body_template, ctx)
@@ -149,6 +160,7 @@ async def _build_body(
         "session_id": session_id,
         "customer_id": customer_id,
         "context": context_dict,
+        "conversation_history": context_dict.get("conversation_history", []),
     }
 
 
@@ -200,6 +212,7 @@ async def _call_agent(
     customer_id: str | None,
     prior_outputs: dict[int, str],
     http_client: httpx.AsyncClient,
+    transcript: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
     Build, auth-inject, and send the HTTP request to a remote agent.
@@ -221,6 +234,7 @@ async def _call_agent(
         customer_id=customer_id,
         prior_outputs=prior_outputs,
         context_note=getattr(step, "context_note", ""),
+        transcript=transcript,
     )
 
     # Resolve authentication
@@ -295,6 +309,7 @@ async def _execute_one_step(
     trace_ctx: Any | None,
     http_client: httpx.AsyncClient,
     on_step_progress: StepProgressCallback | None,
+    transcript: list[dict[str, str]] | None = None,
 ) -> tuple[int, dict | None, str | None]:
     """Returns (step_id, response_dict or None, error or None)."""
     import memory
@@ -321,6 +336,7 @@ async def _execute_one_step(
                 customer_id=customer_id,
                 prior_outputs=prior_outputs,
                 context_note=getattr(step, "context_note", ""),
+                transcript=transcript,
             )
         except Exception as preview_exc:
             log.warning("Body preview failed for step %d: %s", step.step_id, preview_exc)
@@ -329,7 +345,9 @@ async def _execute_one_step(
 
     t0 = time.monotonic()
     try:
-        response = await _call_agent(step, session_id, customer_id, prior_outputs, http_client)
+        response = await _call_agent(
+            step, session_id, customer_id, prior_outputs, http_client, transcript
+        )
         latency_ms = int((time.monotonic() - t0) * 1000)
 
         await memory.save_step_result(
@@ -392,6 +410,7 @@ async def execute_plan(
     customer_id: str | None,
     trace_ctx: Any | None = None,
     on_step_progress: StepProgressCallback | None = None,
+    transcript: list[dict[str, str]] | None = None,
 ) -> dict:
     import memory
 
@@ -447,7 +466,14 @@ async def execute_plan(
             if len(runnable) == 1:
                 step = runnable[0]
                 sid, response, err = await _execute_one_step(
-                    step, session_id, customer_id, prior_outputs, trace_ctx, http_client, on_step_progress
+                    step,
+                    session_id,
+                    customer_id,
+                    prior_outputs,
+                    trace_ctx,
+                    http_client,
+                    on_step_progress,
+                    transcript,
                 )
                 if err:
                     failed.add(sid)
@@ -458,7 +484,14 @@ async def execute_plan(
 
             tasks = [
                 _execute_one_step(
-                    step, session_id, customer_id, dict(prior_outputs), trace_ctx, http_client, on_step_progress
+                    step,
+                    session_id,
+                    customer_id,
+                    dict(prior_outputs),
+                    trace_ctx,
+                    http_client,
+                    on_step_progress,
+                    transcript,
                 )
                 for step in runnable
             ]

@@ -57,11 +57,24 @@ Given a user message and a list of available specialist agents, produce a
 sequential execution plan as valid JSON.
 
 Rules:
-- Include ONLY agents genuinely needed to answer the user's request.
+- Include ONLY agents genuinely needed to answer the user's request, but you MAY use multiple agents if the request spans multiple domains (e.g. billing and usage).
 - steps must be ordered so every step's dependencies have lower step_id values.
-- Each step's task must be a precise, self-contained instruction for that agent.
+- Each step's task must be a precise, self-contained instruction for that agent. If date ranges or specific time windows are needed, always write them out as absolute calendar dates (e.g. "July 2019" or "2019-07-01 to 2019-07-31") rather than referring to other steps (e.g. "same window as step 1").
+- If the user request or conversation history does not specify a date range, specific billing period, or timeframe, default to "July 2019" (or the appropriate range within July 2019) as the target timeframe inside each step's task description so that the specialist agents can successfully query the static demo dataset (which only covers 2019).
 - synthesis_instruction tells the synthesizer how to combine outputs.
 - Use conversation history when provided to resolve follow-up references.
+
+Handling follow-ups and continuations:
+- If the user message is a continuation or reference to the prior conversation
+  (signals include: "proceed", "continue", "go ahead", "do it", "yes", "sure",
+  "next steps", "the above", "previous message", "answer 1 and 2", short affirmations),
+  AND the prior conversation transcript already contains the information needed
+  to answer — return steps: [] and write the full answer plan into synthesis_instruction.
+- The synthesizer has access to the full prior transcript, so synthesis_instruction
+  can say things like: "The user said 'proceed'. Expand on the next steps already
+  listed in the prior assistant message, specifically: [quote the steps here]."
+- Only call agents for a follow-up if genuinely NEW data is required that is not
+  already present in the transcript.
 
 Return ONLY a JSON object (no markdown, no prose):
 {
@@ -75,7 +88,7 @@ Return ONLY a JSON object (no markdown, no prose):
       "context_note": "<optional extra context>"
     }
   ],
-  "synthesis_instruction": "<how to combine all outputs>"
+  "synthesis_instruction": "<how to combine all outputs, or how to answer from transcript if steps is empty>"
 }"""
 
 
@@ -163,6 +176,7 @@ async def build_plan(
     user_message: str,
     customer_id: str | None,
     session_id: str | None = None,
+    transcript: list[dict[str, str]] | None = None,
 ) -> ExecutionPlan:
     agents = await memory.get_active_agents()
     if not agents:
@@ -172,12 +186,14 @@ async def build_plan(
     manifest = _build_manifest(agents)
 
     history_text = ""
-    if session_id:
+    history = transcript
+    if history is None and session_id:
         try:
-            history = await memory.get_conversation_history(session_id, limit=_HISTORY_TURNS)
-            history_text = _format_history(history)
+            history = await memory.get_session_transcript(session_id)
         except Exception as exc:
             log.warning("Could not load session history for planning: %s", exc)
+    if history:
+        history_text = _format_history(history)
 
     user_prompt = (
         f"{history_text}"
@@ -223,7 +239,17 @@ async def build_plan(
         )
 
     if not steps:
-        raise RuntimeError("Planner produced an empty execution plan")
+        # Follow-up turns may legitimately need zero agents; synthesizer uses transcript.
+        return ExecutionPlan(
+            plan_id=str(uuid.uuid4()),
+            user_intent=data.get("user_intent", user_message[:80]),
+            steps=[],
+            synthesis_instruction=data.get(
+                "synthesis_instruction",
+                "Answer the customer using the prior conversation transcript and user message.",
+            ),
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
     if _has_cycle(steps):
         raise RuntimeError("Planner produced a circular execution plan — rejecting")
 

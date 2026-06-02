@@ -8,6 +8,7 @@ import { BillsAndPayments } from "./pages/BillsAndPayments";
 import { Usage } from "./pages/Usage";
 import { ServiceRequests } from "./pages/ServiceRequests";
 import { Programs } from "./pages/Programs";
+import { ReactiveEmail } from "./pages/ReactiveEmail";
 
 export default function App() {
   const dashboardProps = useDashboard();
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/usage" element={<Usage usageData={dashboardProps.usageData} />} />
         <Route path="/service-requests" element={<ServiceRequests />} />
         <Route path="/programs" element={<Programs />} />
+        <Route path="/reactive-email" element={<ReactiveEmail {...dashboardProps} />} />
       </Routes>
     </div>
   );

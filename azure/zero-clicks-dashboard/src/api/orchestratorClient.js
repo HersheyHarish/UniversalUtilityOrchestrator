@@ -52,4 +52,11 @@ export const orchestratorApi = {
 
   // Session history
   session: (sessionId) => req(`/api/sessions/${encodeURIComponent(sessionId)}`),
+
+  // Outage simulation trigger
+  simulateOutage: (customerId) =>
+    req("/api/simulate-outage", {
+      method: "POST",
+      body: JSON.stringify({ customer_id: customerId }),
+    }),
 };

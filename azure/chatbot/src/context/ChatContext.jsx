@@ -1,11 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import { api } from "../api/client";
-import { streamChat } from "../api/orchestratorStream";
 
 const ChatContext = createContext();
 const DEMO_STEPS_ENABLED = String(import.meta.env.VITE_DEMO_STEPS || "").toLowerCase() === "true";
-const STREAM_ENABLED = String(import.meta.env.VITE_CHAT_STREAM ?? "true").toLowerCase() !== "false";
-const POLL_INTERVAL_MS = 1200;
 
 export function ChatProvider({ children }) {
   const [customerId] = useState(() => {
@@ -28,26 +25,56 @@ export function ChatProvider({ children }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [demoEvents, setDemoEvents] = useState([]);
-  const [pipelineStages, setPipelineStages] = useState([]);
-  const abortRef = useRef(null);
+  const [agentOutputs, setAgentOutputs] = useState([]);
+  const [activeAgents, setActiveAgents] = useState([]);
 
   useEffect(() => {
     const fetchSessions = async () => {
       try {
         const data = await api.get(`/api/users/${encodeURIComponent(customerId)}/sessions`);
         setSessions(data.sessions || []);
-      } catch (err) {
+      } catch {
         // logged by client
       }
     };
     fetchSessions();
   }, [customerId]);
 
+  // Fetch agent registry on mount and poll every 30s to stay live
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const data = await api.get('/api/agents');
+        setActiveAgents(data.agents || []);
+      } catch {
+        // orchestrator may not be running yet; silently retry
+      }
+    };
+    fetchAgents();
+    const interval = setInterval(fetchAgents, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const transcriptToMessages = (transcript) =>
+    (transcript || [])
+      .filter((t) => t.role === "user" || t.role === "assistant")
+      .map((t) => ({
+        role: t.role,
+        content: t.content,
+      }));
+
+  const newlyCreatedSessionRef = React.useRef(null);
+
   useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
       setDemoEvents([]);
-      setPipelineStages([]);
+      return;
+    }
+
+    if (newlyCreatedSessionRef.current === activeSessionId) {
+      // Session was just created by sendMessage, no need to fetch history
+      newlyCreatedSessionRef.current = null;
       return;
     }
 
@@ -56,31 +83,18 @@ export function ChatProvider({ children }) {
       setError(null);
       try {
         const data = await api.get(`/api/sessions/${activeSessionId}`);
-        const history = [];
-
-        if (data.session.user_message) {
-          history.push({ role: "user", content: data.session.user_message });
+        if (Array.isArray(data.transcript) && data.transcript.length > 0) {
+          setMessages(transcriptToMessages(data.transcript));
+        } else {
+          const history = [];
+          if (data.session?.user_message) {
+            history.push({ role: "user", content: data.session.user_message });
+          }
+          if (data.session?.final_response) {
+            history.push({ role: "assistant", content: data.session.final_response });
+          }
+          setMessages(history);
         }
-
-        if (data.step_results) {
-          data.step_results.forEach((msg) => {
-            history.push({
-              role: "system",
-              type: msg.type,
-              content: msg.content,
-              agent: msg.agent_name,
-            });
-          });
-        }
-
-        if (data.session.final_response) {
-          history.push({
-            role: "assistant",
-            content: data.session.final_response,
-          });
-        }
-
-        setMessages(history);
         if (DEMO_STEPS_ENABLED) {
           setDemoEvents(Array.isArray(data.demo_events) ? data.demo_events : []);
         }
@@ -94,237 +108,89 @@ export function ChatProvider({ children }) {
   }, [activeSessionId]);
 
   const startNewChat = () => {
-    if (abortRef.current) abortRef.current.abort();
     setActiveSessionId(null);
     setMessages([]);
     setDemoEvents([]);
-    setPipelineStages([]);
+    setAgentOutputs([]);
     setError(null);
   };
 
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  const appendAssistantDelta = (delta) => {
-    setMessages((prev) => {
-      const next = [...prev];
-      const last = next[next.length - 1];
-      if (last?.role === "assistant" && last.streaming) {
-        next[next.length - 1] = {
-          ...last,
-          content: (last.content || "") + delta,
-        };
-        return next;
-      }
-      return [
-        ...next,
-        { role: "assistant", content: delta, streaming: true },
-      ];
-    });
-  };
-
-  const finalizeAssistant = (content, segments) => {
-    setMessages((prev) => {
-      const next = [...prev];
-      const last = next[next.length - 1];
-      if (last?.role === "assistant") {
-        next[next.length - 1] = {
-          role: "assistant",
-          content,
-          segments,
-          streaming: false,
-        };
-        return next;
-      }
-      return [...next, { role: "assistant", content, segments }];
-    });
-  };
-
-  const sendMessage = async (text) => {
-    const newMsg = { role: "user", content: text };
-    setMessages((prev) => [...prev, newMsg]);
+  const sendMessage = React.useCallback(async (text) => {
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
     setIsLoading(true);
     setError(null);
-    setPipelineStages([]);
     if (DEMO_STEPS_ENABLED) setDemoEvents([]);
+    setAgentOutputs([]);
 
-    const priorIds = new Set((sessions || []).map((s) => s.id));
-    let observedSessionId = activeSessionId || null;
-    const pollingControl = { done: false };
-    let pollPromise = Promise.resolve();
+    let currentSessionId = activeSessionId;
+    if (!currentSessionId) {
+      currentSessionId = crypto.randomUUID();
+      newlyCreatedSessionRef.current = currentSessionId;
+      setActiveSessionId(currentSessionId);
+    }
 
-    const useStream = STREAM_ENABLED;
-    const body = {
-      message: text,
-      customer_id: customerId,
-      session_id: activeSessionId,
-    };
+    let pollInterval = null;
+    if (DEMO_STEPS_ENABLED) {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await api.get(`/api/sessions/${currentSessionId}`);
+          if (res.demo_events) {
+            setDemoEvents(res.demo_events);
+          }
+        } catch (err) {
+          // silently ignore polling errors
+        }
+      }, 1500);
+    }
 
     try {
-      if (DEMO_STEPS_ENABLED && !useStream) {
-        pollPromise = (async () => {
-          while (!pollingControl.done) {
-            try {
-              if (!observedSessionId) {
-                const sessionData = await api.get(
-                  `/api/users/${encodeURIComponent(customerId)}/sessions`
-                );
-                const listed = sessionData.sessions || [];
-                setSessions(listed);
-                const newlyCreated = listed.find((s) => !priorIds.has(s.id));
-                if (newlyCreated?.id) {
-                  observedSessionId = newlyCreated.id;
-                  setActiveSessionId((prev) => prev || newlyCreated.id);
-                }
-              }
-              if (observedSessionId) {
-                const detail = await api.get(`/api/sessions/${observedSessionId}`);
-                setDemoEvents(Array.isArray(detail.demo_events) ? detail.demo_events : []);
-              }
-            } catch {
-              /* non-fatal */
-            }
-            await sleep(POLL_INTERVAL_MS);
+      const data = await api.post("/api/chat", {
+        message: text,
+        customer_id: customerId,
+        session_id: currentSessionId,
+      });
+
+      if (pollInterval) clearInterval(pollInterval);
+
+      if (DEMO_STEPS_ENABLED) {
+        try {
+          const res = await api.get(`/api/sessions/${currentSessionId}`);
+          if (res.demo_events) setDemoEvents(res.demo_events);
+          if (res.step_results && Array.isArray(res.step_results)) {
+            setAgentOutputs(res.step_results.map(s => ({
+              step_id: s.step_id,
+              agent_name: s.agent_name,
+              result: s.content || s.result || '',
+            })));
           }
-        })();
+        } catch (err) {}
       }
 
-      if (useStream) {
-        abortRef.current = new AbortController();
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: "", streaming: true },
-        ]);
-
-        await streamChat({
-          url: "/api/chat/stream",
-          body,
-          signal: abortRef.current.signal,
-          onEvent: (event, data) => {
-            if (event === "session" && data.session_id) {
-              observedSessionId = data.session_id;
-              setActiveSessionId((prev) => prev || data.session_id);
-            }
-            if (event === "stage") {
-              setPipelineStages((prev) => [
-                ...prev,
-                {
-                  stage: data.stage,
-                  status: data.status,
-                  message: data.message,
-                },
-              ]);
-              if (DEMO_STEPS_ENABLED) {
-                setDemoEvents((prev) => [
-                  ...prev,
-                  {
-                    stage: data.stage,
-                    status: data.status,
-                    message: data.message,
-                    timestamp: new Date().toISOString(),
-                  },
-                ]);
-              }
-            }
-            if (event === "step") {
-              setPipelineStages((prev) => [
-                ...prev,
-                {
-                  stage: "execution",
-                  status: data.status,
-                  message: `${data.agent_name} (step ${data.step_id})`,
-                },
-              ]);
-            }
-            if (event === "token" && data.delta) {
-              appendAssistantDelta(data.delta);
-            }
-            if (event === "done") {
-              finalizeAssistant(
-                data.response || "",
-                data.content_segments || null
-              );
-              if (data.session_id) {
-                observedSessionId = data.session_id;
-                setActiveSessionId((prev) => prev || data.session_id);
-              }
-            }
-            if (event === "error") {
-              throw new Error(data.detail || data.error || "Stream failed");
-            }
-          },
-        });
-      } else {
-        const data = await api.post("/api/chat", body);
-        if (!activeSessionId && data.session_id) {
-          setActiveSessionId(data.session_id);
-        }
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.response,
-            segments: data.content_segments,
-          },
-        ]);
-        observedSessionId = data.session_id || observedSessionId;
-      }
-
-      pollingControl.done = true;
-      await pollPromise;
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.response,
+          segments: data.content_segments,
+        },
+      ]);
 
       const sessionData = await api.get(
         `/api/users/${encodeURIComponent(customerId)}/sessions`
       );
       setSessions(sessionData.sessions || []);
-
-      const sid = observedSessionId || activeSessionId;
-      if (sid && DEMO_STEPS_ENABLED) {
-        const detail = await api.get(`/api/sessions/${sid}`);
-        setDemoEvents(Array.isArray(detail.demo_events) ? detail.demo_events : []);
-      }
     } catch (err) {
-      pollingControl.done = true;
-      await pollPromise;
-
-      if (useStream && err.name !== "AbortError") {
-        try {
-          const data = await api.post("/api/chat", body);
-          finalizeAssistant(data.response, data.content_segments);
-          if (data.session_id) setActiveSessionId((prev) => prev || data.session_id);
-          const sessionData = await api.get(
-            `/api/users/${encodeURIComponent(customerId)}/sessions`
-          );
-          setSessions(sessionData.sessions || []);
-          return;
-        } catch (fallbackErr) {
-          setError(fallbackErr.message);
-        }
-      } else if (err.name !== "AbortError") {
-        setError(err.message);
-      }
-
-      setMessages((prev) => {
-        const filtered = prev.filter(
-          (m) => !(m.role === "assistant" && m.streaming && !m.content)
-        );
-        if (err.name !== "AbortError" && !useStream) {
-          return [
-            ...filtered,
-            {
-              role: "system",
-              isError: true,
-              content: `Error: ${err.message}`,
-            },
-          ];
-        }
-        return filtered;
-      });
+      if (pollInterval) clearInterval(pollInterval);
+      setError(err.message);
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", isError: true, content: `Error: ${err.message}` },
+      ]);
     } finally {
-      pollingControl.done = true;
+      if (pollInterval) clearInterval(pollInterval);
       setIsLoading(false);
-      abortRef.current = null;
     }
-  };
+  }, [activeSessionId, customerId]);
 
   return (
     <ChatContext.Provider
@@ -335,9 +201,10 @@ export function ChatProvider({ children }) {
         setActiveSessionId,
         messages,
         demoEvents,
-        pipelineStages,
-        demoStepsEnabled: DEMO_STEPS_ENABLED || STREAM_ENABLED,
-        streamEnabled: STREAM_ENABLED,
+        agentOutputs,
+        activeAgents,
+        demoStepsEnabled: DEMO_STEPS_ENABLED,
+        streamEnabled: false,
         isLoading,
         error,
         startNewChat,

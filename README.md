@@ -181,20 +181,24 @@ From [`azure/registry/runtime_contract.py`](azure/registry/runtime_contract.py):
 
 Compose sets `VITE_REGISTRY_URL`, `VITE_ORCHESTRATOR_URL`, and optional `VITE_FUNC_CODE` for function keys in non-local modes—see service `environment` blocks in `docker-compose.yml`.
 
-### Orchestrator v1.2 (streaming and performance)
+### Orchestrator v1.2 (memory, formatting, performance)
 
 | Variable | Purpose |
 |----------|---------|
 | `ORCHESTRATOR_PARALLEL_EXEC` | Run independent plan steps in parallel (default `true` in Compose) |
-| `ORCHESTRATOR_STREAM_PROGRESS` | Persist pipeline events to traces for SSE clients (allowed in prod) |
-| `ORCHESTRATOR_PLANNER_HISTORY_TURNS` | Multi-turn context for planner (default `6`) |
+| `ORCHESTRATOR_STREAM_PROGRESS` | Persist pipeline events to traces (demo UI; allowed in prod) |
+| `ORCHESTRATOR_TRANSCRIPT_MAX_TURNS` | Max user/assistant turns loaded per session (default `12`) |
+| `ORCHESTRATOR_TRANSCRIPT_MAX_CHARS` | Max characters per transcript turn (default `4000`) |
 | `ORCHESTRATOR_EVAL_ENABLED` | Optional post-synthesis faithfulness check + one repair pass |
 | `AZURE_OPENAI_PLANNER_DEPLOYMENT` | Separate deployment for planner JSON (optional) |
-| `VITE_CHAT_STREAM` | Front-ends use `POST /api/chat/stream` when `true` (default); falls back to `/api/chat` |
+| `ORCHESTRATOR_CHAT_STREAM_ENABLED` | Enable `POST /api/chat/stream` on the server (default **off**) |
+| `VITE_CHAT_STREAM` | Front-ends call stream endpoint when `true` (default **false** in Compose) |
 
-`POST /api/chat` remains unchanged for backward compatibility. Streaming clients use `POST /api/chat/stream` (`text/event-stream` events: `session`, `stage`, `step`, `token`, `done`, `error`).
+**Session memory:** Multi-turn context uses the Cosmos `messages` container transcript (user + final assistant turns). Pass the same `session_id` on each message in a thread. `GET /api/sessions/{id}` returns a `transcript` array for UI reload.
 
-**Azure AI Foundry:** set `AZURE_OPENAI_ENDPOINT` to your project OpenAI base (e.g. `https://<resource>.services.ai.azure.com/api/projects/<project>/openai/v1`). If the portal gives a `/v1/responses` URL, that suffix is stripped automatically — do not use it as the chat base.
+**Chat API:** Clients should use `POST /api/chat` (JSON). Streaming is disabled by default because Azure Functions buffers SSE end-to-end.
+
+**Azure AI Foundry:** set `AZURE_OPENAI_ENDPOINT` to your project OpenAI base (e.g. `https://<resource>.services.ai.azure.com/api/projects/<project>/openai/v1`). If the portal gives a `/v1/responses` URL, that suffix is stripped automatically.
 
 ---
 

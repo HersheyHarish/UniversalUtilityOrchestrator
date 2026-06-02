@@ -33,6 +33,16 @@ async def test_build_body_legacy():
     assert body["customer_id"] == "cust_1"
     assert body["context"]["step_1_output"] == "out_1"
     assert body["context"]["planner_note"] == "note"
+    assert body["conversation_history"] == []
+
+
+@pytest.mark.asyncio
+async def test_build_body_includes_conversation_history():
+    transcript = [{"role": "user", "content": "prior"}]
+    body = await _build_body(
+        {}, "test_task", "sess_1", "cust_1", {}, "", transcript=transcript
+    )
+    assert body["conversation_history"] == transcript
 
 
 @pytest.mark.asyncio

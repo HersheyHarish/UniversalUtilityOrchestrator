@@ -50,8 +50,37 @@ async def main():
                             }
                             if spec.get("ttl"):
                                 kwargs["default_ttl"] = -1
-                            await db.create_container_if_not_exists(**kwargs)
+                            container = await db.create_container_if_not_exists(**kwargs)
                             print(f"  ✓ Container '{spec['id']}' ready")
+                            if spec["id"] == "agents":
+                                email_agent = {
+                                    "id": "agent-email-notification",
+                                    "partition_key": "agents",
+                                    "name": "email_notification_agent",
+                                    "description": "Sends email alerts, outages notifications, and safety action plans to utility customers.",
+                                    "endpoint_url": "http://host.docker.internal:7071/api/email_agent",
+                                    "status": "active",
+                                    "version": "1.0.0",
+                                    "utility_types": ["multi"],
+                                    "tags": ["email", "notification", "alerts"],
+                                    "capabilities": [
+                                        {
+                                            "name": "email_notification",
+                                            "description": "Send email notifications to customers."
+                                        }
+                                    ],
+                                    "health_check_config": {
+                                        "check_type": "none"
+                                    },
+                                    "invocation_config": {
+                                        "http_method": "POST",
+                                        "content_type": "application/json",
+                                        "body_template": {},
+                                        "response_result_path": "result"
+                                    }
+                                }
+                                await container.upsert_item(email_agent)
+                                print("  ✓ Seeded 'email_notification_agent'")
                             break
                         except Exception as e:
                             if c_attempt == MAX_RETRIES:

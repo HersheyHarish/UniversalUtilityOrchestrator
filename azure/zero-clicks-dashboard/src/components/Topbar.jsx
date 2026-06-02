@@ -27,6 +27,7 @@ export function Topbar({
         <NavLink className={({ isActive }) => `topbar-link ${isActive ? "active" : ""}`} to="/usage">Usage</NavLink>
         <NavLink className={({ isActive }) => `topbar-link ${isActive ? "active" : ""}`} to="/service-requests">Service Requests</NavLink>
         <NavLink className={({ isActive }) => `topbar-link ${isActive ? "active" : ""}`} to="/programs">Programs</NavLink>
+        <NavLink className={({ isActive }) => `topbar-link ${isActive ? "active" : ""}`} to="/reactive-email">Reactive Email</NavLink>
       </nav>
 
       <div className="topbar-right">
