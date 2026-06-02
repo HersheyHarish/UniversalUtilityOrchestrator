@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { useChat } from '../context/ChatContext';
 import MessageInput from './MessageInput';
+import MessageContent from './MessageContent';
 import { Sparkles, Bot, AlertTriangle } from 'lucide-react';
 import { getUserName } from '../utils/nameMapping';
 import '../styles/ChatArea.css';
@@ -46,7 +47,9 @@ export default function ChatArea() {
                     <div className="avatar">
                       <Sparkles size={20} className="accent-icon" />
                     </div>
-                    <div className="bubble">{msg.content}</div>
+                    <div className="bubble">
+                      <MessageContent content={msg.content} segments={msg.segments} />
+                    </div>
                   </div>
                 );
               }

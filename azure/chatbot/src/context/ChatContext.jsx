@@ -3,10 +3,8 @@ import { api } from "../api/client";
 
 const ChatContext = createContext();
 const DEMO_STEPS_ENABLED = String(import.meta.env.VITE_DEMO_STEPS || "").toLowerCase() === "true";
-const POLL_INTERVAL_MS = 1200;
 
 export function ChatProvider({ children }) {
-  // Keep demo customer id aligned with backend demo data (CUST-1001 / CUST-1002).
   const [customerId] = useState(() => {
     let id = localStorage.getItem("demo_customer_id");
     const normalized = (id || "").toUpperCase();
@@ -27,25 +25,56 @@ export function ChatProvider({ children }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [demoEvents, setDemoEvents] = useState([]);
+  const [agentOutputs, setAgentOutputs] = useState([]);
+  const [activeAgents, setActiveAgents] = useState([]);
 
-  // Fetch all sessions for this customer on mount
   useEffect(() => {
     const fetchSessions = async () => {
       try {
         const data = await api.get(`/api/users/${encodeURIComponent(customerId)}/sessions`);
         setSessions(data.sessions || []);
-      } catch (err) {
-        // Will be console logged by client
+      } catch {
+        // logged by client
       }
     };
     fetchSessions();
   }, [customerId]);
 
-  // Fetch specific session details when activeSessionId changes
+  // Fetch agent registry on mount and poll every 30s to stay live
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const data = await api.get('/api/agents');
+        setActiveAgents(data.agents || []);
+      } catch {
+        // orchestrator may not be running yet; silently retry
+      }
+    };
+    fetchAgents();
+    const interval = setInterval(fetchAgents, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const transcriptToMessages = (transcript) =>
+    (transcript || [])
+      .filter((t) => t.role === "user" || t.role === "assistant")
+      .map((t) => ({
+        role: t.role,
+        content: t.content,
+      }));
+
+  const newlyCreatedSessionRef = React.useRef(null);
+
   useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
       setDemoEvents([]);
+      return;
+    }
+
+    if (newlyCreatedSessionRef.current === activeSessionId) {
+      // Session was just created by sendMessage, no need to fetch history
+      newlyCreatedSessionRef.current = null;
       return;
     }
 
@@ -54,30 +83,18 @@ export function ChatProvider({ children }) {
       setError(null);
       try {
         const data = await api.get(`/api/sessions/${activeSessionId}`);
-        // Combine user message, plans, and step results into a readable message list
-        // For simplicity in this demo, we can just show the final responses or full history
-        const history = [];
-        
-        // Push user message
-        if (data.session.user_message) {
-          history.push({ role: 'user', content: data.session.user_message });
+        if (Array.isArray(data.transcript) && data.transcript.length > 0) {
+          setMessages(transcriptToMessages(data.transcript));
+        } else {
+          const history = [];
+          if (data.session?.user_message) {
+            history.push({ role: "user", content: data.session.user_message });
+          }
+          if (data.session?.final_response) {
+            history.push({ role: "assistant", content: data.session.final_response });
+          }
+          setMessages(history);
         }
-        
-        // Push step results
-        if (data.step_results) {
-          data.step_results.forEach(msg => {
-             // For the demo, we might just want to show the final response
-             // or format step results nicely. We'll store them all.
-             history.push({ role: 'system', type: msg.type, content: msg.content, agent: msg.agent_name });
-          });
-        }
-
-        // Push final response if it exists and wasn't already in messages
-        if (data.session.final_response) {
-          history.push({ role: 'assistant', content: data.session.final_response });
-        }
-
-        setMessages(history);
         if (DEMO_STEPS_ENABLED) {
           setDemoEvents(Array.isArray(data.demo_events) ? data.demo_events : []);
         }
@@ -94,83 +111,86 @@ export function ChatProvider({ children }) {
     setActiveSessionId(null);
     setMessages([]);
     setDemoEvents([]);
+    setAgentOutputs([]);
     setError(null);
   };
 
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  const sendMessage = async (text) => {
-    // Optimistic UI update
-    const newMsg = { role: 'user', content: text };
-    setMessages(prev => [...prev, newMsg]);
+  const sendMessage = React.useCallback(async (text) => {
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
     setIsLoading(true);
     setError(null);
     if (DEMO_STEPS_ENABLED) setDemoEvents([]);
+    setAgentOutputs([]);
 
-    const priorIds = new Set((sessions || []).map((s) => s.id));
-    let observedSessionId = activeSessionId || null;
-    const pollingControl = { done: false };
-    let pollPromise = Promise.resolve();
-    try {
+    let currentSessionId = activeSessionId;
+    if (!currentSessionId) {
+      currentSessionId = crypto.randomUUID();
+      newlyCreatedSessionRef.current = currentSessionId;
+      setActiveSessionId(currentSessionId);
+    }
 
-      if (DEMO_STEPS_ENABLED) {
-        pollPromise = (async () => {
-          while (!pollingControl.done) {
-            try {
-              if (!observedSessionId) {
-                const sessionData = await api.get(`/api/users/${encodeURIComponent(customerId)}/sessions`);
-                const listed = sessionData.sessions || [];
-                setSessions(listed);
-                const newlyCreated = listed.find((s) => !priorIds.has(s.id));
-                if (newlyCreated?.id) {
-                  observedSessionId = newlyCreated.id;
-                  setActiveSessionId((prev) => prev || newlyCreated.id);
-                }
-              }
-
-              if (observedSessionId) {
-                const detail = await api.get(`/api/sessions/${observedSessionId}`);
-                setDemoEvents(Array.isArray(detail.demo_events) ? detail.demo_events : []);
-              }
-            } catch (_pollErr) {
-              // Poll failures should not interrupt normal chat flow.
-            }
-            await sleep(POLL_INTERVAL_MS);
+    let pollInterval = null;
+    if (DEMO_STEPS_ENABLED) {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await api.get(`/api/sessions/${currentSessionId}`);
+          if (res.demo_events) {
+            setDemoEvents(res.demo_events);
           }
-        })();
-      }
+        } catch (err) {
+          // silently ignore polling errors
+        }
+      }, 1500);
+    }
 
-      const data = await api.post('/api/chat', {
+    try {
+      const data = await api.post("/api/chat", {
         message: text,
         customer_id: customerId,
-        session_id: activeSessionId
+        session_id: currentSessionId,
       });
 
-      if (!activeSessionId && data.session_id) {
-        setActiveSessionId(data.session_id);
-      }
+      if (pollInterval) clearInterval(pollInterval);
 
-      // Keep sidebar in sync after every successful turn (Cosmos write succeeded)
-      const sessionData = await api.get(`/api/users/${encodeURIComponent(customerId)}/sessions`);
-      setSessions(sessionData.sessions || []);
-
-      setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-      pollingControl.done = true;
-      await pollPromise;
-      const detail = await api.get(`/api/sessions/${data.session_id || observedSessionId || activeSessionId}`);
       if (DEMO_STEPS_ENABLED) {
-        setDemoEvents(Array.isArray(detail.demo_events) ? detail.demo_events : []);
+        try {
+          const res = await api.get(`/api/sessions/${currentSessionId}`);
+          if (res.demo_events) setDemoEvents(res.demo_events);
+          if (res.step_results && Array.isArray(res.step_results)) {
+            setAgentOutputs(res.step_results.map(s => ({
+              step_id: s.step_id,
+              agent_name: s.agent_name,
+              result: s.content || s.result || '',
+            })));
+          }
+        } catch (err) {}
       }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.response,
+          segments: data.content_segments,
+        },
+      ]);
+
+      const sessionData = await api.get(
+        `/api/users/${encodeURIComponent(customerId)}/sessions`
+      );
+      setSessions(sessionData.sessions || []);
     } catch (err) {
-      pollingControl.done = true;
-      await pollPromise;
+      if (pollInterval) clearInterval(pollInterval);
       setError(err.message);
-      setMessages(prev => [...prev, { role: 'system', isError: true, content: `Error: ${err.message}` }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", isError: true, content: `Error: ${err.message}` },
+      ]);
     } finally {
-      pollingControl.done = true;
+      if (pollInterval) clearInterval(pollInterval);
       setIsLoading(false);
     }
-  };
+  }, [activeSessionId, customerId]);
 
   return (
     <ChatContext.Provider
@@ -181,7 +201,10 @@ export function ChatProvider({ children }) {
         setActiveSessionId,
         messages,
         demoEvents,
+        agentOutputs,
+        activeAgents,
         demoStepsEnabled: DEMO_STEPS_ENABLED,
+        streamEnabled: false,
         isLoading,
         error,
         startNewChat,
