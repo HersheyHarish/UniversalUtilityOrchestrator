@@ -5,6 +5,7 @@ import { Spinner, Alert, EmptyState } from "./Primitives.jsx";
 import { IcRefresh, IcSearch, IcFilter, IcChevronRight } from "./Icons.jsx";
 
 const STATUS_OPTS = ["all", "completed", "failed", "running"];
+const TRIGGER_OPTS = ["all", "reactive", "proactive"];   // ← new
 const WINDOW_OPTS = [
   { label: "Last 1 h", value: 1 },
   { label: "Last 6 h", value: 6 },
@@ -19,6 +20,11 @@ const STATUS_STYLE = {
   running: { bg: "#e0e7ff", color: "#3730a3", dot: "#6366f1" },
 };
 
+const TRIGGER_STYLE = {
+  reactive: { bg: "#e0f2fe", color: "#0369a1" },
+  proactive: { bg: "#ede9fe", color: "#5b21b6" },
+};
+
 function StatusPill({ status }) {
   const s = STATUS_STYLE[status] || { bg: "#f1f5f9", color: "#334155", dot: "#94a3b8" };
   return (
@@ -29,6 +35,18 @@ function StatusPill({ status }) {
     }}>
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot }} />
       {status}
+    </span>
+  );
+}
+
+function TriggerBadge({ triggerType }) {
+  const s = TRIGGER_STYLE[triggerType] || { bg: "#f1f5f9", color: "#334155" };
+  return (
+    <span style={{
+      background: s.bg, color: s.color, padding: "1px 7px",
+      borderRadius: 99, fontSize: 11, fontWeight: 500, whiteSpace: "nowrap"
+    }}>
+      {triggerType === "proactive" ? "proactive" : "reactive"}
     </span>
   );
 }
@@ -58,7 +76,7 @@ export default function TraceExplorer() {
   const [error, setError] = useState("");
   const [q, setQ] = useState(sp.get("q") || "");
   const [status, setStatus] = useState(sp.get("status") || "all");
-  const [agent, setAgent] = useState(sp.get("agent") || "");
+  const [triggerType, setTriggerType] = useState(sp.get("trigger") || "all");
   const [sinceHours, setSinceHours] = useState(Number(sp.get("since") || 24));
 
   const load = useCallback(async () => {
@@ -66,7 +84,7 @@ export default function TraceExplorer() {
     try {
       const res = await traces.list({
         status: status !== "all" ? status : undefined,
-        agent: agent.trim() || undefined,
+        trigger_type: triggerType !== "all" ? triggerType : undefined,
         since_hours: sinceHours,
         limit: 100,
       });
@@ -76,7 +94,7 @@ export default function TraceExplorer() {
     } finally {
       setLoading(false);
     }
-  }, [status, agent, sinceHours]);
+  }, [status, triggerType, sinceHours]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -84,10 +102,10 @@ export default function TraceExplorer() {
     const p = {};
     if (q) p.q = q;
     if (status !== "all") p.status = status;
-    if (agent) p.agent = agent;
+    if (triggerType !== "all") p.trigger = triggerType;
     if (sinceHours !== 24) p.since = String(sinceHours);
     setSP(p, { replace: true });
-  }, [q, status, agent, sinceHours, setSP]);
+  }, [q, status, triggerType, sinceHours, setSP]);
 
   const filtered = q.trim()
     ? list.filter(t =>
@@ -99,15 +117,21 @@ export default function TraceExplorer() {
 
   const maxMs = Math.max(...filtered.map(t => t.total_latency_ms || 0), 1);
 
-  const agentNames = [...new Set(list.flatMap(t => []))];
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div className="page-header">
         <div>
           <div className="page-title">Trace explorer</div>
           <div className="page-desc">
-            {filtered.length} trace{filtered.length !== 1 ? "s" : ""} · end-to-end execution history
+            {filtered.length} trace{filtered.length !== 1 ? "s" : ""}
+            {triggerType !== "all" && (
+              <span style={{
+                marginLeft: 8, ...TRIGGER_STYLE[triggerType],
+                padding: "1px 8px", borderRadius: 99, fontSize: 11, fontWeight: 500
+              }}>
+                {triggerType} only
+              </span>
+            )}
           </div>
         </div>
         <button className="btn btn-secondary" onClick={load}>
@@ -121,18 +145,23 @@ export default function TraceExplorer() {
       <div className="card">
         <div className="card-body" style={{
           padding: "14px 16px", display: "flex",
-          gap: 16, flexWrap: "wrap", alignItems: "center"
+          gap: 14, flexWrap: "wrap", alignItems: "center"
         }}>
-          <div className="search-bar" style={{ maxWidth: 340 }}>
+          {/* Search */}
+          <div className="search-bar" style={{ maxWidth: 320 }}>
             <IcSearch size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
             <input placeholder="Search message, customer ID, intent…"
               value={q} onChange={e => setQ(e.target.value)} />
-            {q && <button style={{
-              background: "none", border: "none", cursor: "pointer",
-              color: "var(--text-muted)", fontSize: 18
-            }} onClick={() => setQ("")}>×</button>}
+            {q && (
+              <button style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "var(--text-muted)", fontSize: 18
+              }}
+                onClick={() => setQ("")}>×</button>
+            )}
           </div>
 
+          {/* Status */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <IcFilter size={13} style={{ color: "var(--text-muted)" }} />
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Status:</span>
@@ -146,6 +175,22 @@ export default function TraceExplorer() {
             </div>
           </div>
 
+          {/* Trigger type — new filter */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Type:</span>
+            <div className="filter-chips">
+              {TRIGGER_OPTS.map(t => (
+                <span key={t} className={`chip ${triggerType === t ? "selected" : ""}`}
+                  onClick={() => setTriggerType(t)}>
+                  {t === "all" ? "All"
+                    : t === "reactive" ? "Reactive"
+                      : "Proactive"}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Time window */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Window:</span>
             <select className="form-control" value={sinceHours}
@@ -155,14 +200,6 @@ export default function TraceExplorer() {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Agent:</span>
-            <input className="form-control" value={agent}
-              onChange={e => setAgent(e.target.value)}
-              placeholder="filter by agent name"
-              style={{ width: 180, fontSize: 13, padding: "5px 10px" }} />
           </div>
         </div>
       </div>
@@ -182,6 +219,7 @@ export default function TraceExplorer() {
                   <thead>
                     <tr>
                       <th>Request</th>
+                      <th>Type</th>
                       <th>Status</th>
                       <th>Agents</th>
                       <th>Latency</th>
@@ -195,7 +233,7 @@ export default function TraceExplorer() {
                         onClick={() => navigate(`/traces/${t.id}`)}>
                         <td>
                           <div style={{
-                            fontWeight: 500, fontSize: 14, maxWidth: 340,
+                            fontWeight: 500, fontSize: 14, maxWidth: 300,
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
                           }}>
                             {t.user_message || "(no message)"}
@@ -209,7 +247,7 @@ export default function TraceExplorer() {
                             {t.user_intent && (
                               <span style={{
                                 fontSize: 11, color: "var(--text-secondary)",
-                                maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis",
+                                maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis",
                                 whiteSpace: "nowrap"
                               }}>
                                 Intent: {t.user_intent}
@@ -217,12 +255,15 @@ export default function TraceExplorer() {
                             )}
                           </div>
                         </td>
+                        <td>
+                          <TriggerBadge triggerType={t.trigger_type} />
+                        </td>
                         <td><StatusPill status={t.status} /></td>
                         <td>
                           <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                             {t.agents_invoked || 0}
                             <span style={{ color: "var(--text-muted)", marginLeft: 4 }}>
-                              / {t.step_count || 0} steps
+                              / {t.step_count || 0}
                             </span>
                           </span>
                         </td>

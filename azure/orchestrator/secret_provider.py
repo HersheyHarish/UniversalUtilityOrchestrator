@@ -1,12 +1,3 @@
-"""
-secret_provider.py — central secret resolution for orchestrator local + cloud modes.
-
-Resolution order:
-  1) Inline secret reference (inline:<base64>)
-  2) Local emulator mode env vars
-  3) Azure Key Vault secret lookup
-"""
-
 from __future__ import annotations
 
 import base64
@@ -41,13 +32,6 @@ def _decode_inline(secret_ref: str) -> str | None:
 
 
 async def get_secret(secret_name: str, local_env_fallback: str | None = None) -> str:
-    """
-    Resolve a secret value from inline refs, env (local), or Key Vault (cloud).
-
-    local_env_fallback:
-      Optional env var name to prefer in local mode before falling back to
-      secret_name-as-env-var behavior.
-    """
     if not secret_name:
         return ""
 

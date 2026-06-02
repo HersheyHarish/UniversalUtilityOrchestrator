@@ -1,23 +1,3 @@
-"""
-auth_injector.py — Pluggable authentication injection for outgoing agent calls.
-
-New in this version:
-  - OAuth2 Client Credentials grant flow
-    - Fetches token from oauth2_token_url using client_id + client_secret
-    - Caches access tokens per agent (keyed by token_url + client_id) until expiry
-    - Injects Authorization: Bearer <access_token>
-  - All existing auth types (none, api_key, bearer_token, basic_auth, custom) unchanged
-
-Security:
-  - Secret values are resolved via secret_provider:
-      * inline refs (local mode),
-      * environment variables (local mode),
-      * Key Vault via MSI (cloud mode).
-  - OAuth2 access tokens are cached with their expiry time; a 60-second buffer
-    ensures tokens are refreshed before they actually expire.
-  - Nothing is logged at INFO level — only secret names, never values.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -30,16 +10,12 @@ from secret_provider import get_secret
 
 log = logging.getLogger(__name__)
 
-# ── In-memory caches (per cold-start) ─────────────────────────────────────────
-
-# OAuth2 access tokens: { cache_key: (access_token, expires_at_epoch) }
 _oauth2_token_cache: dict[str, tuple[str, float]] = {}
 
 _OAUTH2_TOKEN_BUFFER_SECONDS = 60  # refresh token this many seconds before it expires
 
 
 # ── OAuth2 token fetch ────────────────────────────────────────────────────────
-
 
 async def _get_oauth2_token(
     token_url: str,
@@ -93,9 +69,7 @@ async def _get_oauth2_token(
     log.info("OAuth2 token obtained, expires_in=%ds", expires_in)
     return token
 
-
 # ── Public interface ──────────────────────────────────────────────────────────
-
 
 class InjectedAuth:
     """Resolved authentication ready to merge into an httpx request."""
@@ -114,16 +88,7 @@ class InjectedAuth:
         return kwargs
 
 
-async def resolve(
-    auth_config: dict[str, Any],
-    legacy_secret_name: str | None = None,
-) -> InjectedAuth:
-    """
-    Resolve auth_config into concrete headers / params.
-
-    auth_config   — the auth_config dict from the agent's Cosmos document.
-    legacy_secret_name — old api_key_secret_name field for backward compat.
-    """
+async def resolve(auth_config: dict[str, Any], legacy_secret_name: str | None = None) -> InjectedAuth:
     result = InjectedAuth()
     auth_type = (auth_config or {}).get("auth_type", "none")
 

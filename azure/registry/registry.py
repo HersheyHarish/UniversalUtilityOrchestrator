@@ -1,17 +1,4 @@
-"""
-registry.py — Business logic for the Agent Registry.
-
-Updated probe logic:
-  - _probe_one() reads agent.health_check_config to decide HOW to probe
-  - HTTP:  GET custom URL or derived /api/health path, check status code
-  - TCP:   socket.connect() to host:port — no HTTP needed
-  - NONE:  always returns healthy (useful for agents without a health endpoint)
-
-get_stats() now includes by_health_check_type breakdown.
-"""
-
 from __future__ import annotations
-
 import asyncio
 import logging
 import socket
@@ -51,10 +38,6 @@ _PROBE_CONCURRENCY = 5
 
 
 def _derive_health_url(endpoint_url: str) -> str:
-    """
-    Derive a /api/health URL from the agent's endpoint_url when the admin
-    did not explicitly configure one.
-    """
     url = endpoint_url
     if url.endswith("/api/invoke"):
         return url[: -len("/invoke")] + "/health"
@@ -63,7 +46,6 @@ def _derive_health_url(endpoint_url: str) -> str:
 
 
 def _derive_tcp_host_port(endpoint_url: str, configured_port: int) -> tuple[str, int]:
-    """Parse host and port from the endpoint URL for TCP checks."""
     parsed = urlparse(endpoint_url)
     host = parsed.hostname or "localhost"
     if configured_port and configured_port > 0:
@@ -73,11 +55,9 @@ def _derive_tcp_host_port(endpoint_url: str, configured_port: int) -> tuple[str,
         port = 443 if endpoint_url.startswith("https://") else 80
     return host, port
 
-
 # =============================================================================
 # Probe implementations
 # =============================================================================
-
 
 async def _probe_http(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckResult:
     health_url = hc.get("health_check_url") or _derive_health_url(agent["endpoint_url"])
@@ -119,7 +99,6 @@ async def _probe_http(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckR
             error=str(exc),
         )
 
-
 async def _probe_tcp(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckResult:
     host, port = _derive_tcp_host_port(
         agent["endpoint_url"],
@@ -130,8 +109,6 @@ async def _probe_tcp(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckRe
     start = time.monotonic()
 
     try:
-        # Run the blocking socket call in a thread pool to avoid blocking the
-        # asyncio event loop
         loop = asyncio.get_event_loop()
         await asyncio.wait_for(
             loop.run_in_executor(None, lambda: socket.create_connection((host, port), timeout=timeout)),
@@ -166,9 +143,7 @@ async def _probe_tcp(agent: dict[str, Any], hc: dict[str, Any]) -> HealthCheckRe
             error=str(exc),
         )
 
-
 def _probe_none(agent: dict[str, Any]) -> HealthCheckResult:
-    """No health check — always report healthy."""
     return HealthCheckResult(
         agent_id=agent["id"],
         agent_name=agent["name"],
@@ -178,12 +153,7 @@ def _probe_none(agent: dict[str, Any]) -> HealthCheckResult:
         response_ms=0,
     )
 
-
 async def _probe_one(agent: dict[str, Any]) -> HealthCheckResult:
-    """
-    Probe a single agent using its health_check_config.
-    Falls back to HTTP if health_check_config is missing (backward compat).
-    """
     hc = agent.get("health_check_config") or {}
     check_type = hc.get("check_type", "http")
 
@@ -193,7 +163,6 @@ async def _probe_one(agent: dict[str, Any]) -> HealthCheckResult:
         return await _probe_tcp(agent, hc)
     else:
         return await _probe_http(agent, hc)
-
 
 async def _persist_health(agent: dict[str, Any], result: HealthCheckResult) -> None:
     agent["last_health_check_at"] = result.checked_at
@@ -205,11 +174,9 @@ async def _persist_health(agent: dict[str, Any], result: HealthCheckResult) -> N
         agent["status"] = AgentStatus.DEGRADED.value
     await cosmos.agent_upsert(agent)
 
-
 # =============================================================================
 # CRUD (create/patch/replace updated to carry new config fields)
 # =============================================================================
-
 
 async def create_agent(body: AgentCreate) -> tuple[AgentDoc, bool]:
     existing = await cosmos.agent_get_by_name(body.name)
@@ -228,11 +195,9 @@ async def create_agent(body: AgentCreate) -> tuple[AgentDoc, bool]:
     saved = await cosmos.agent_upsert(doc.model_dump())
     return AgentDoc(**saved), True
 
-
 async def get_agent(agent_id: str) -> AgentDoc | None:
     raw = await cosmos.agent_get(agent_id)
     return AgentDoc(**raw) if raw else None
-
 
 async def list_agents(
     status: str | None,
@@ -242,11 +207,9 @@ async def list_agents(
     rows = await cosmos.agent_list(status, utility_type, tag)
     return [AgentDoc(**r) for r in rows]
 
-
 async def search_agents(q: str) -> list[AgentDoc]:
     rows = await cosmos.agent_search(q)
     return [AgentDoc(**r) for r in rows]
-
 
 async def patch_agent(agent_id: str, body: AgentUpdate) -> AgentDoc | None:
     raw = await cosmos.agent_get(agent_id)
@@ -284,7 +247,6 @@ async def patch_agent(agent_id: str, body: AgentUpdate) -> AgentDoc | None:
     saved = await cosmos.agent_upsert(raw)
     return AgentDoc(**saved)
 
-
 async def replace_agent(agent_id: str, body: AgentReplace) -> AgentDoc | None:
     raw = await cosmos.agent_get(agent_id)
     if not raw:
@@ -307,7 +269,6 @@ async def replace_agent(agent_id: str, body: AgentReplace) -> AgentDoc | None:
     saved = await cosmos.agent_upsert(updated.model_dump())
     return AgentDoc(**saved)
 
-
 async def set_status(agent_id: str, body: StatusPatch) -> AgentDoc | None:
     raw = await cosmos.agent_get(agent_id)
     if not raw:
@@ -320,13 +281,8 @@ async def set_status(agent_id: str, body: StatusPatch) -> AgentDoc | None:
     saved = await cosmos.agent_upsert(raw)
     return AgentDoc(**saved)
 
-
-async def delete_agent(agent_id: str, hard: bool = False) -> bool:
-    if hard:
-        return await cosmos.agent_hard_delete(agent_id)
-    result = await cosmos.agent_soft_delete(agent_id)
-    return result is not None
-
+async def delete_agent(agent_id: str) -> bool:
+    return await cosmos.agent_hard_delete(agent_id)
 
 async def add_capability(agent_id: str, body: CapabilityAdd) -> AgentDoc | None:
     raw = await cosmos.agent_get(agent_id)
@@ -340,7 +296,6 @@ async def add_capability(agent_id: str, body: CapabilityAdd) -> AgentDoc | None:
     saved = await cosmos.agent_upsert(raw)
     return AgentDoc(**saved)
 
-
 async def remove_capability(agent_id: str, cap_name: str) -> AgentDoc | None:
     raw = await cosmos.agent_get(agent_id)
     if not raw:
@@ -349,11 +304,9 @@ async def remove_capability(agent_id: str, cap_name: str) -> AgentDoc | None:
     saved = await cosmos.agent_upsert(raw)
     return AgentDoc(**saved)
 
-
 # =============================================================================
 # Health probing (public)
 # =============================================================================
-
 
 async def ping_agent(agent_id: str) -> HealthCheckResult | None:
     raw = await cosmos.agent_get(agent_id)
@@ -363,9 +316,8 @@ async def ping_agent(agent_id: str) -> HealthCheckResult | None:
     await _persist_health(raw, result)
     return result
 
-
-async def ping_all_active() -> PingAllResponse:
-    agents = await cosmos.agent_list(status="active")
+async def ping_all_agents() -> PingAllResponse:
+    agents = await cosmos.agent_list()
     if not agents:
         return PingAllResponse(checked=0, healthy=0, degraded=0, results=[])
 
@@ -387,11 +339,9 @@ async def ping_all_active() -> PingAllResponse:
         results=results,
     )
 
-
 # =============================================================================
 # Discovery & analytics
 # =============================================================================
-
 
 async def get_capability_index() -> list[CapabilityIndex]:
     rows = await cosmos.agent_capabilities_all()
@@ -411,7 +361,6 @@ async def get_capability_index() -> list[CapabilityIndex]:
         )
         for v in sorted(grouped.values(), key=lambda x: x["capability_name"])
     ]
-
 
 async def get_stats() -> RegistryStats:
     rows = await cosmos.agent_stats_raw()
@@ -461,7 +410,6 @@ async def get_stats() -> RegistryStats:
         last_registered_at=last_reg,
         last_health_check_at=last_health,
     )
-
 
 def build_dashboard_html(agents: list[dict[str, Any]], stats: RegistryStats) -> str:
     STATUS_COLORS = {

@@ -1,13 +1,3 @@
-"""
-function_app.py — Azure Functions v2 HTTP entry point.
-
-Fixes applied:
-  1. /api/health uses AuthLevel.ANONYMOUS — no key needed for liveness probes.
-  2. All handlers have a broad try/except that always returns valid JSON,
-     so curl responses are never empty or unparseable.
-  3. Startup import errors are caught and surfaced via /api/health.
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,8 +18,8 @@ try:
     import planner
     import runtime_contract
     import synthesizer
-    import trace_writer
-    from models import ChatRequest, ChatResponse, SessionDoc, SessionStatus
+    from trace_writer import TraceContext
+    from models import ChatRequest, ProactiveTriggerRequest, StandardResponse, StandardResponse, SessionDoc, SessionStatus
 except Exception as _e:
     _IMPORT_ERROR = f"{type(_e).__name__}: {_e}\n{traceback.format_exc()}"
     log.critical("Startup import failed: %s", _IMPORT_ERROR)
@@ -90,14 +80,8 @@ def _runtime_error_response() -> func.HttpResponse | None:
 
 # ── GET /api/health  (ANONYMOUS — no key required) ───────────────────────────
 
-
 @app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 async def health(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    Liveness probe. Returns 200 when the worker is healthy.
-    Returns 503 with the import_error field when startup failed,
-    so you can see the root cause without digging through portal logs.
-    """
     if _IMPORT_ERROR:
         return func.HttpResponse(
             json.dumps({"status": "unhealthy", "import_error": _IMPORT_ERROR}),
@@ -123,6 +107,218 @@ async def health(req: func.HttpRequest) -> func.HttpResponse:
         }
     )
 
+# ── Common helpers ───────────────────────────
+
+async def _safe_trace_finish(trace: TraceContext | None, error: str | None = None, final_response: str | None = None) -> None:
+    if not trace:
+        return
+
+    try:
+        await trace.finish(error=error, final_response=final_response)
+    except Exception as e:
+        pass
+
+async def _handle_failure(session_id: str, trace: TraceContext | None, stage: str, message: str, error: Exception):
+    log.exception("%s for session %s", message, session_id)
+
+    if trace and _DEMO_STEPS_ENABLED:
+        await trace.record_event(
+            stage=stage,
+            status="failed",
+            message=message,
+            metadata={"error": str(error)},
+        )
+    await memory.update_session(session_id, status=SessionStatus.FAILED)
+
+    await _safe_trace_finish(
+        trace,
+        error=f"{message}: {error}",
+    )
+
+    return _err(message, 500, str(error))
+
+async def _build_trace(session_id: str, message: str, customer_id: str, trigger_type: str, metadata: dict | None) -> TraceContext | None:
+    try:
+        return TraceContext(
+            session_id=session_id,
+            user_message=message,
+            customer_id=customer_id,
+            trigger_type=trigger_type,
+            proactive_meta=metadata,
+        )
+    except Exception as e:
+        log.error(
+            "TraceContext creation failed (continuing without tracing): %s", e
+        )
+        return None
+
+async def _create_or_load_session(session_id: str | None, message: str, customer_id: str) -> SessionDoc:
+    if session_id:
+        existing = await memory.get_session(session_id)
+
+        if not existing:
+            raise ValueError(f"Session '{session_id}' not found")
+
+        return SessionDoc(**{
+            k: v
+            for k, v in existing.items()
+            if k in SessionDoc.model_fields
+        })
+
+    return await memory.create_session(
+        SessionDoc(
+            user_message=message,
+            customer_id=customer_id,
+        )
+    )
+
+async def _process_request(message: str, customer_id: str, trigger_type: str, session_id: str | None = None, metadata: dict | None = None, save_message_fn = None):
+    chat_history = []
+    if session_id:
+        try:
+            chat_history = await memory.get_conversation_history(
+                session_id=session_id,
+                limit=10,
+            )
+            log.info(
+                "chat: loaded %d history turns for session=%s",
+                len(chat_history), session_id,
+            )
+        except Exception as exc:
+            log.error("chat: failed to load history (non-fatal): %s", exc)
+            chat_history = []
+    
+    try:
+        session = await _create_or_load_session(
+            session_id=session_id,
+            message=message,
+            customer_id=customer_id,
+        )
+    except ValueError as e:
+        return _err(str(e), 404)
+
+    except Exception as e:
+        log.exception("Session init failed")
+        return _err("Session creation failed", 500, str(e))
+
+    session_id = session.id
+
+    # Save incoming message
+    if save_message_fn:
+        try:
+            await save_message_fn(session_id)
+        except Exception as e:
+            log.warning("Could not save message (non-fatal): %s", e)
+
+    trace = await _build_trace(
+        session_id=session_id,
+        message=message,
+        customer_id=customer_id,
+        trigger_type=trigger_type,
+        metadata=metadata,
+    )
+
+    # Planning
+
+    if trace and _DEMO_STEPS_ENABLED and trigger_type == "reactive":
+        await trace.record_event("request", "running", "Received user request.")
+
+    try:
+        plan = await planner.build_plan(
+            message=message,
+            customer_id=customer_id,
+            trigger_type=trigger_type,
+            chat_history=chat_history,
+            args=metadata
+        )
+
+        await memory.save_plan(session_id, plan)
+
+        log.info("Session %s: plan built — %d steps", session_id, len(plan.steps))
+
+    except Exception as e:
+        return await _handle_failure(
+            session_id=session_id,
+            trace=trace,
+            stage="planning",
+            message="Planning failed",
+            error=e,
+        )
+    
+    if trace:
+        try:
+            await trace.record_plan(plan)
+        except Exception as e:
+            log.error("trace.record_plan failed (non-fatal): %s", e)
+
+    # Execution
+    if trace and _DEMO_STEPS_ENABLED:
+        await trace.record_event("execution", "running", "Starting execution of planned steps.")
+    try:
+        step_results = await executor.execute_plan(
+            plan,
+            session_id,
+            customer_id,
+            trace_ctx=trace,
+        )
+
+    except Exception as e:
+        return await _handle_failure(
+            session_id=session_id,
+            trace=trace,
+            stage="execution",
+            message="Execution failed",
+            error=e,
+        )
+
+    # Synthesis
+
+    try:
+        await memory.update_session(
+            session_id,
+            status=SessionStatus.SYNTHESIZING,
+        )
+
+        if trace and _DEMO_STEPS_ENABLED:
+            await trace.record_event("synthesis", "running", "Synthesizing final answer.")
+
+        final_response = await synthesizer.synthesize(
+            plan,
+            step_results,
+            message,
+            trigger_type=trigger_type,
+            chat_history=chat_history,
+            args=metadata
+        )
+
+        await memory.save_final_response(
+            session_id,
+            final_response,
+        )
+        if trace:
+            try:
+                await trace.finish(final_response=final_response)
+            except Exception as e:
+                log.warning("Trace finish failed for session %s: %s", session_id, e)
+
+    except Exception as e:
+        log.exception("Synthesis failed for session %s", session_id)
+        return await _handle_failure(
+            session_id=session_id,
+            trace=trace,
+            stage="synthesis",
+            message="Synthesis failed",
+            error=e,
+        )
+
+    return _ok(StandardResponse(
+        session_id=session_id,
+        response=final_response,
+        plan_id=plan.plan_id,
+        agents_used=[s.agent_name for s in plan.steps],
+        steps_completed=len(step_results),
+    ).model_dump())
+
 
 # ── POST /api/chat ─────────────────────────────────────────────────────────────
 
@@ -143,105 +339,48 @@ async def chat(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         return _err(f"Invalid request shape: {e}")
 
-    try:
-        if chat_req.session_id:
-            existing = await memory.get_session(chat_req.session_id)
-            if not existing:
-                return _err(f"Session '{chat_req.session_id}' not found", 404)
-            session = SessionDoc(**{k: v for k, v in existing.items() if k in SessionDoc.model_fields})
-        else:
-            session = SessionDoc(
-                user_message=chat_req.message,
-                customer_id=chat_req.customer_id,
-            )
-            session = await memory.create_session(session)
-        session_id = session.id
-    except Exception as e:
-        log.exception("Session init failed")
-        return _err("Session creation failed", 500, str(e))
+    return await _process_request(
+        message=chat_req.message,
+        customer_id=chat_req.customer_id,
+        trigger_type="reactive",
+        session_id=chat_req.session_id,
+        metadata=None,
+        save_message_fn=lambda sid: memory.save_user_message(
+            sid,
+            chat_req.message,
+        ),
+    )
+
+@app.route(route="proactive/trigger", methods=["POST"])
+async def proactive_trigger(req: func.HttpRequest) -> func.HttpResponse:
+    runtime_err = _runtime_error_response()
+    if runtime_err:
+        return runtime_err
 
     try:
-        await memory.save_user_message(session_id, chat_req.message)
-    except Exception as e:
-        log.warning("Could not save user message (non-fatal): %s", e)
+        body = req.get_json()
+        proactive_req = ProactiveTriggerRequest(**body)
 
-    trace_ctx = None
-    try:
-        trace_ctx = trace_writer.TraceContext(
-            session_id=session_id,
-            user_message=chat_req.message,
-            customer_id=chat_req.customer_id,
-        )
     except Exception as e:
-        log.warning("Trace init failed for session %s (non-fatal): %s", session_id, e)
+        return _err(f"Invalid request: {e}")
 
-    try:
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("request", "running", "Received user request.")
-        plan = await planner.build_plan(chat_req.message, chat_req.customer_id)
-        await memory.save_plan(session_id, plan)
-        log.info("Session %s: plan built — %d steps", session_id, len(plan.steps))
-        if trace_ctx:
-            await trace_ctx.record_plan(plan)
-    except Exception as e:
-        log.exception("Planning failed for session %s", session_id)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("planning", "failed", "Planning failed.", {"error": str(e)})
-        await memory.update_session(session_id, status=SessionStatus.FAILED)
-        return _err("Planning failed", 500, str(e))
+    metadata = {
+        "source_agent_name": proactive_req.agent_name,
+        "event_type": proactive_req.event_type,
+        "context": proactive_req.context,
+        "severity": proactive_req.severity,
+    }
 
-    try:
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("execution", "running", "Starting execution of planned steps.")
-        step_results = await executor.execute_plan(
-            plan,
-            session_id,
-            chat_req.customer_id,
-            trace_ctx=trace_ctx,
-        )
-    except Exception as e:
-        log.exception("Execution failed for session %s", session_id)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("execution", "failed", "Execution failed.", {"error": str(e)})
-        if trace_ctx:
-            try:
-                await trace_ctx.finish(error=f"Execution failed: {e}")
-            except Exception as trace_err:
-                log.warning("Trace finish failed after execution error: %s", trace_err)
-        await memory.update_session(session_id, status=SessionStatus.FAILED)
-        return _err("Execution failed", 500, str(e))
-
-    try:
-        await memory.update_session(session_id, status=SessionStatus.SYNTHESIZING)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("synthesis", "running", "Synthesizing final answer.")
-        final = await synthesizer.synthesize(plan, step_results, chat_req.message)
-        await memory.save_final_response(session_id, final)
-        if trace_ctx:
-            try:
-                await trace_ctx.finish(final_response=final)
-            except Exception as trace_err:
-                log.warning("Trace finish failed for session %s: %s", session_id, trace_err)
-    except Exception as e:
-        log.exception("Synthesis failed for session %s", session_id)
-        if trace_ctx and _DEMO_STEPS_ENABLED:
-            await trace_ctx.record_event("synthesis", "failed", "Synthesis failed.", {"error": str(e)})
-        if trace_ctx:
-            try:
-                await trace_ctx.finish(error=f"Synthesis failed: {e}")
-            except Exception as trace_err:
-                log.warning("Trace finish failed after synthesis error: %s", trace_err)
-        await memory.update_session(session_id, status=SessionStatus.FAILED)
-        return _err("Synthesis failed", 500, str(e))
-
-    return _ok(
-        ChatResponse(
-            session_id=session_id,
-            response=final,
-            plan_id=plan.plan_id,
-            agents_used=[s.agent_name for s in plan.steps],
-            steps_completed=len(step_results),
-        ).model_dump()
+    return await _process_request(
+        message=proactive_req.message,
+        customer_id=proactive_req.customer_id,
+        trigger_type="proactive",
+        metadata=metadata,
+        save_message_fn=lambda sid: memory.save_proactive_message(
+            sid,
+            proactive_req.message,
+            metadata=metadata
+        ),
     )
 
 
@@ -270,7 +409,6 @@ async def get_session(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ── GET /api/users/{customer_id}/sessions ─────────────────────────────────────
-
 
 @app.route(route="users/{customer_id}/sessions", methods=["GET"])
 async def get_user_sessions(req: func.HttpRequest) -> func.HttpResponse:

@@ -63,14 +63,7 @@ async def _verify_container() -> None:
         _container_verified = True
         log.info("trace_writer: traces container verified OK")
     except cosmos_exc.CosmosResourceNotFoundError:
-        log.error(
-            "trace_writer: 'traces' container missing. Create it:\n"
-            "  az cosmosdb sql container create "
-            "--account-name <ACCOUNT> --resource-group <RG> "
-            "--database-name %s --container-name traces "
-            "--partition-key-path /partition_key --default-ttl 2592000",
-            _DATABASE,
-        )
+        log.error("trace_writer: 'traces' container missing")
     except Exception as exc:
         log.error("trace_writer: container check failed (%s: %s)", type(exc).__name__, exc)
 
@@ -96,8 +89,7 @@ async def _upsert_inner(doc: dict[str, Any]) -> None:
 # =============================================================================
 
 class TraceContext:
-
-    def __init__(self, session_id: str, user_message: str, customer_id: str | None):
+    def __init__(self, session_id: str, user_message: str, customer_id: str | None, trigger_type: str = "reactive", proactive_meta: dict | None = None):
         self.session_id = session_id
         self._doc: dict[str, Any] = {
             "id":               session_id,
@@ -105,6 +97,8 @@ class TraceContext:
             "session_id":       session_id,
             "user_message":     user_message,
             "customer_id":      customer_id or "",
+            "trigger_type":     trigger_type,
+            "proactive_meta":   proactive_meta,
             "status":           "running",
             "started_at":       _now(),
             "completed_at":     None,
@@ -117,6 +111,7 @@ class TraceContext:
             "ttl":              _TTL_SECS,
         }
         self._step_start_times: dict[int, str] = {}
+        self._counted_step_ids: set[int] = set()
         log.info("TraceContext created for session %s", session_id)
 
     async def record_plan(self, plan: Any) -> None:
@@ -137,14 +132,9 @@ class TraceContext:
         input_payload:  dict[str, Any],
         mapping_result: Any | None = None,   # schema_mapper.MappingResult | None
     ) -> None:
-        """
-        Record the start of a step. Called synchronously before the HTTP call.
-        mapping_result is populated when schema-driven mode was used.
-        """
         now = _now()
         self._step_start_times[step.step_id] = now
 
-        # Determine body construction mode for observability
         schema_mode = "default"
         inv = getattr(step, "invocation_config", None) or {}
         if isinstance(inv, dict):
@@ -168,7 +158,6 @@ class TraceContext:
             "status":        "running",
             "error":         None,
             "auth_type":     (getattr(step, "auth_config", None) or {}).get("auth_type", "none"),
-            # Schema-driven observability
             "schema_mode":   schema_mode,
             "mapping_result": _serialise_mapping(mapping_result),
         }
@@ -213,12 +202,13 @@ class TraceContext:
             "latency_ms":   latency,
             "status":       "completed",
         }
-        # Refresh mapping_result with final data (tokens, warnings, etc.)
         if mapping_result is not None:
             updates["mapping_result"] = _serialise_mapping(mapping_result)
 
         self._update_step(step_id, updates)
-        self._doc["agents_invoked"] = self._doc.get("agents_invoked", 0) + 1
+        if step_id not in self._counted_step_ids:
+            self._counted_step_ids.add(step_id)
+            self._doc["agents_invoked"] = self._doc.get("agents_invoked", 0) + 1
         log.info("TraceContext: step %d completed (%dms) session %s",
                  step_id, latency, self.session_id)
         await _upsert(self._doc)
@@ -248,7 +238,6 @@ class TraceContext:
         error:          str,
         mapping_result: Any | None,
     ) -> None:
-        """Called when schema mapping itself fails before any HTTP call."""
         now = _now()
         self._update_step(step_id, {
             "completed_at":   now,

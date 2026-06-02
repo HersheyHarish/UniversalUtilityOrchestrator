@@ -17,3 +17,6 @@ httpx==0.27.2
  
 # Data validation
 pydantic==2.9.2
+
+# Dynamic request payload
+jsonschema==4.23.0

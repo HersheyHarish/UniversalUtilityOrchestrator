@@ -155,7 +155,8 @@ export default function TimelineView({ steps, traceStartedAt, onSelectStep, sele
       </svg>
 
       <div style={{ display: "flex", gap: 16, padding: "6px 4px",
-        fontSize: 11, color: "var(--text-muted)" }}>
+        fontSize: 11, color: "var(--text-muted)" 
+      }}>
         {Object.entries(STATUS_COLOR).map(([s, c]) => (
           <div key={s} style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2,

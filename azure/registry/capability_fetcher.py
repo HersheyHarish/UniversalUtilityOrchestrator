@@ -1,26 +1,4 @@
-"""
-capability_fetcher.py — Auto-fetch capabilities from a remote agent.
-
-Flow:
-  1. Admin fills endpoint_url, auth_config, auth_secrets, invocation_config in the UI.
-  2. UI calls POST /api/agents/capabilities/fetch with those fields.
-  3. This module builds a "describe your capabilities" request using the
-     agent's own invocation_config body_template so the message format is correct.
-  4. Auth is injected using plain values from auth_secrets (NOT Key Vault) because
-     the agent may not be registered yet — secrets haven't been stored.
-  5. The response is parsed with multiple strategies (JSON array, JSON object,
-     OpenAI tools format, natural language fallback).
-  6. Parsed capabilities are returned to the UI for review before saving.
-
-Auth note:
-  This module uses resolve_plain() — a variant of auth_injector.resolve() that
-  accepts raw secret values instead of Key Vault secret names. This is safe
-  because the values travel only within the Azure Functions runtime and are never
-  logged or persisted.
-"""
-
 from __future__ import annotations
-
 import base64
 import json
 import logging
@@ -47,8 +25,6 @@ _CAPABILITY_TASK = (
 
 
 class _PlainAuth:
-    """Holds resolved headers and params built from plain secret values."""
-
     def __init__(self):
         self.headers: dict[str, str] = {}
         self.params: dict[str, str] = {}
@@ -62,10 +38,6 @@ class _PlainAuth:
 
 
 def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
-    """
-    Resolve auth from plain values (no Key Vault round-trip).
-    Used only during capability fetch — secrets are not persisted.
-    """
     result = _PlainAuth()
     auth_type = (auth_config or {}).get("auth_type", "none")
 
@@ -92,9 +64,6 @@ def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
             result.headers["Authorization"] = f"Basic {encoded}"
 
     elif auth_type == "oauth2":
-        # OAuth2 requires a token endpoint call — we can't do that with plain values
-        # alone without network access. Skip silently; the probe will still be sent
-        # without auth and the user will see an auth error if the agent requires it.
         log.warning(
             "capability_fetcher: OAuth2 auth cannot be resolved from plain values "
             "during fetch — request will be sent unauthenticated."
@@ -106,7 +75,6 @@ def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
         for i, entry in enumerate(entries):
             key = entry.get("key", "")
             inject_as = entry.get("inject_as", "header")
-            # Prefer the plain value stored in the entry itself (non-sensitive custom fields)
             val = entry.get("value")
             if not val and i < len(secret_vals) and secret_vals[i]:
                 val = secret_vals[i]
@@ -125,15 +93,9 @@ def _resolve_plain(auth_config: dict, auth_secrets: dict) -> _PlainAuth:
 
 
 def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
-    """
-    Build the capability-discovery request body using the agent's body_template.
-    Replaces {task} (and similar tokens) with the capability-listing prompt.
-    Falls back to the standard AgentRequest schema when template is empty.
-    """
     template = (invocation_config or {}).get("body_template") or {}
 
     if not template:
-        # Legacy / default schema
         return {
             "task": _CAPABILITY_TASK,
             "session_id": "capability-fetch",
@@ -146,7 +108,6 @@ def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
             for token in ("{task}", "{message}", "{input}", "{query}", "{prompt}", "{content}"):
                 if token in val:
                     return val.replace(token, _CAPABILITY_TASK)
-            # Replace common context tokens with empty values
             val = val.replace("{session_id}", "capability-fetch")
             val = val.replace("{customer_id}", "")
             val = val.replace("{context}", "{}")
@@ -160,8 +121,6 @@ def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
 
     rendered = _render(template)
 
-    # If no task token was found in the template, inject the question at the
-    # most likely location so the agent actually receives the prompt
     body_str = json.dumps(rendered)
     if _CAPABILITY_TASK not in body_str:
         rendered["_capability_fetch_prompt"] = _CAPABILITY_TASK
@@ -175,9 +134,7 @@ def _build_fetch_body(invocation_config: dict) -> dict[str, Any]:
 
 
 def _try_json_array(text: str) -> list[dict] | None:
-    """Strategy 1: response is a bare JSON array of capability objects."""
     text = text.strip()
-    # Strip markdown code fences if present
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
     text = text.strip()
@@ -187,7 +144,6 @@ def _try_json_array(text: str) -> list[dict] | None:
             return _normalise_list(data)
     except (json.JSONDecodeError, ValueError):
         pass
-    # Try finding a JSON array anywhere in the text
     match = re.search(r"\[[\s\S]*\]", text)
     if match:
         try:
@@ -200,10 +156,6 @@ def _try_json_array(text: str) -> list[dict] | None:
 
 
 def _try_json_object(text: str) -> list[dict] | None:
-    """
-    Strategy 2: response is a JSON object with a capabilities / tools / functions key.
-    Handles OpenAI tools format: {"tools": [{"name": ..., "description": ..., "parameters": ...}]}
-    """
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
@@ -242,14 +194,9 @@ def _try_json_object(text: str) -> list[dict] | None:
 
 
 def _normalise_list(items: list) -> list[dict]:
-    """
-    Convert heterogeneous capability representations to uniform
-    {"name": str, "description": str} dicts.
-    """
     result = []
     for item in items:
         if isinstance(item, str):
-            # Plain string — use as name with empty description
             name = _to_snake(item.strip())
             if name:
                 result.append({"name": name, "description": item.strip(), "input_schema": {}, "output_schema": {}})
@@ -258,7 +205,6 @@ def _normalise_list(items: list) -> list[dict]:
         if not isinstance(item, dict):
             continue
 
-        # OpenAI tool format: {"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}
         if "function" in item and isinstance(item["function"], dict):
             item = item["function"]
 
@@ -283,15 +229,13 @@ def _normalise_list(items: list) -> list[dict]:
 
 
 def _to_snake(text: str) -> str:
-    """Convert any string to a valid snake_case capability name."""
     text = text.lower()
     text = re.sub(r"[^a-z0-9]+", "_", text)
     text = re.sub(r"_+", "_", text).strip("_")
-    return text[:60]  # cap length
+    return text[:60]
 
 
 def _try_extract_from_result_path(resp: dict, result_path: str) -> str | None:
-    """Walk result_path to find a string suitable for further parsing."""
     if not result_path:
         return None
     parts = result_path.split(".")
@@ -305,11 +249,6 @@ def _try_extract_from_result_path(resp: dict, result_path: str) -> str | None:
 
 
 def _parse_response(resp_body: Any, result_path: str) -> list[dict]:
-    """
-    Try all parsing strategies in order. Return the first successful result.
-    Returns an empty list when nothing can be extracted (caller surfaces an error).
-    """
-    # If result_path is configured, extract that field first
     if isinstance(resp_body, dict) and result_path:
         extracted = _try_extract_from_result_path(resp_body, result_path)
         if extracted:
@@ -317,7 +256,6 @@ def _parse_response(resp_body: Any, result_path: str) -> list[dict]:
             if parsed:
                 return parsed
 
-    # Try the full response body as-is
     if isinstance(resp_body, list):
         normalised = _normalise_list(resp_body)
         if normalised:
@@ -328,7 +266,6 @@ def _parse_response(resp_body: Any, result_path: str) -> list[dict]:
         if parsed:
             return parsed
 
-    # Convert to string and try text-based extraction
     text = resp_body if isinstance(resp_body, str) else json.dumps(resp_body)
     return _try_json_array(text) or _try_json_object(text) or []
 
@@ -344,21 +281,6 @@ async def fetch_capabilities(
     auth_secrets: dict,
     invocation_config: dict,
 ) -> dict[str, Any]:
-    """
-    Call the remote agent with a capability-discovery prompt and return
-    a list of parsed capabilities.
-
-    Returns:
-        {
-          "capabilities": [{"name": ..., "description": ..., ...}],
-          "raw_response":  str,       # truncated raw text for debugging
-          "parse_strategy": str,      # which strategy succeeded
-          "warning": str | None,      # non-fatal issue (e.g. OAuth2 skipped)
-        }
-
-    Raises:
-        RuntimeError with a human-readable message on any hard error.
-    """
     if not endpoint_url:
         raise RuntimeError("endpoint_url is required.")
     if not endpoint_url.startswith(("http://", "https://")):
@@ -366,7 +288,6 @@ async def fetch_capabilities(
 
     warning = None
 
-    # Resolve auth from plain values (no KV)
     auth_type = (auth_config or {}).get("auth_type", "none")
     if auth_type == "oauth2":
         warning = (
@@ -375,7 +296,6 @@ async def fetch_capabilities(
         )
     injected = _resolve_plain(auth_config, auth_secrets)
 
-    # Build request body
     body = _build_fetch_body(invocation_config)
     method = (invocation_config or {}).get("http_method", "POST").upper()
     ct = (invocation_config or {}).get("content_type", "application/json")
@@ -395,7 +315,6 @@ async def fetch_capabilities(
 
     request_kwargs = injected.apply_to_kwargs(request_kwargs)
 
-    # Execute request
     try:
         async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT) as client:
             resp = await client.request(**request_kwargs)
@@ -411,7 +330,6 @@ async def fetch_capabilities(
     except Exception as exc:
         raise RuntimeError(f"HTTP request failed: {exc}") from exc
 
-    # HTTP error handling
     if resp.status_code == 401:
         raise RuntimeError(
             "HTTP 401 Unauthorized — the agent rejected the request. Check your auth configuration and secret values."
@@ -440,10 +358,9 @@ async def fetch_capabilities(
     if not resp.is_success:
         raise RuntimeError(f"HTTP {resp.status_code} from {endpoint_url}: {resp.text[:300]}")
 
-    # Parse response
     raw_text = resp.text
     try:
-        resp_body = resp.json()
+        resp_body = resp.json()["answer"]
     except Exception:
         resp_body = raw_text
 

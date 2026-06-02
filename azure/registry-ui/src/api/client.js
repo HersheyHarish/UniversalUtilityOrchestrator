@@ -76,8 +76,7 @@ export const agents = {
   create: (body)   => req("POST", "/api/agents",              { body }),
   replace:(id, b)  => req("PUT",  `/api/agents/${id}`,        { body: b }),
   patch:  (id, b)  => req("PATCH",`/api/agents/${id}`,        { body: b }),
-  delete: (id, hard = false) =>
-    req("DELETE", `/api/agents/${id}`, { params: hard ? { hard: "true" } : {} }),
+  delete: (id)     => req("DELETE", `/api/agents/${id}`),
 
   setStatus: (id, status, reason) =>
     req("PATCH", `/api/agents/${id}/status`, { body: { status, reason } }),
@@ -142,14 +141,7 @@ export const agents = {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 export const registry = {
-  stats: async () => {
-    try {
-      return await req("GET", "/api/registry/stats");
-    } catch (_err) {
-      // Backward-compat fallback for older backends.
-      return req("GET", "/api/agents/stats");
-    }
-  },
+  stats: async () => req("GET", "/api/registry/stats"),
   capabilities: () => req("GET", "/api/agents/capabilities"),
 
   export: async () => {
@@ -169,7 +161,7 @@ export const registry = {
 // ── Observability / traces ────────────────────────────────────────────────────
 export const observability = {
   metrics:      (sinceHours = 24)                => req("GET", "/api/observability/metrics",        { params: { since_hours: sinceHours } }),
-  agentMetrics: (sinceHours = 24)                => req("GET", "/api/observability/agent-metrics",  { params: { since_hours: sinceHours } }),
+  agentMetrics: (sinceHours = 24)                => req("GET", "/api/observability/agents",  { params: { since_hours: sinceHours } }),
   timeseries:   (sinceHours = 24, bucketHours=1) => req("GET", "/api/observability/timeseries",     { params: { since_hours: sinceHours, bucket_hours: bucketHours } }),
 };
 

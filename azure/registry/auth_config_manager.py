@@ -1,31 +1,4 @@
-"""
-auth_config_manager.py — Stores agent auth secrets in Key Vault (cloud) or
-inline references (local emulator mode).
-
-Called by registry.py when an agent is created or updated with auth_secrets.
-
-Responsibilities:
-  1. Accept the agent name + auth_config + auth_secrets from the request.
-  2. For each non-empty secret value in auth_secrets, generate a deterministic
-     Key Vault secret name and write the value to Key Vault via MSI.
-  3. Return an updated AuthConfig with the secret_name references filled in.
-     The caller then stores this updated config in Cosmos (never the values).
-
-Secret naming convention:
-  agent-{slug}-apikey           API key
-  agent-{slug}-bearertoken      Bearer token
-  agent-{slug}-basicpassword    Basic auth password
-  agent-{slug}-oauth2secret     OAuth2 client secret
-  agent-{slug}-custom-{index}   Custom entry at index N
-
-{slug} = lowercase, non-alphanumeric chars replaced with hyphens, max 24 chars.
-This is deterministic: re-saving an agent overwrites the same secret (idempotent).
-
-Key Vault limits: secret names 1-127 chars, alphanumeric and hyphens only.
-"""
-
 from __future__ import annotations
-
 import logging
 import os
 import re
@@ -45,7 +18,6 @@ _CREDENTIAL: DefaultAzureCredential | None = None
 
 
 def _slug(name: str) -> str:
-    """Convert an agent name to a safe KV secret name segment (max 24 chars)."""
     s = name.lower()
     s = re.sub(r"[^a-z0-9]", "-", s)
     s = re.sub(r"-+", "-", s).strip("-")
@@ -53,14 +25,6 @@ def _slug(name: str) -> str:
 
 
 async def _set_secret(secret_name: str, value: str) -> str:
-    """
-    Persist a secret and return the reference that should be saved.
-
-    Cloud mode:
-      Stores in Key Vault, returns the Key Vault secret name.
-    Local mode:
-      Stores an inline reference, returns inline:<base64>.
-    """
     if is_local_mode():
         if is_prod_env():
             raise RuntimeError("inline secret references are forbidden when APP_ENV=prod")
@@ -85,13 +49,6 @@ async def process_and_store(
     auth_config: AuthConfig,
     auth_secrets: AuthSecrets | None,
 ) -> AuthConfig:
-    """
-    Write any provided secret values into Key Vault and return an updated
-    AuthConfig with the corresponding secret_name fields populated.
-
-    If auth_secrets is None or all values are empty, the original auth_config
-    is returned unchanged (idempotent — existing KV references are preserved).
-    """
     if not auth_secrets:
         return auth_config
 
