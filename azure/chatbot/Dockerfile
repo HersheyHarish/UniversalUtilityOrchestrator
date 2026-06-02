@@ -9,8 +9,8 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Expose Vite dev server port (matches vite.config.js server.port)
+RUN chmod +x docker-entrypoint.sh
+
 EXPOSE 3000
 
-# Run the dev server with host binding to expose to Docker network
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+ENTRYPOINT ["./docker-entrypoint.sh"]

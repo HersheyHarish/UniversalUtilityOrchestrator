@@ -1,43 +1,41 @@
 import React from "react";
-import { useDashboardData } from "./state/useDashboardData";
-import { InsightsSection } from "./components/InsightsSection";
-import { CopilotSection } from "./components/CopilotSection";
-import { AlertsSection } from "./components/AlertsSection";
+import { Routes, Route } from "react-router-dom";
+import { useDashboard } from "./state/useDashboard";
+import { Topbar } from "./components/Topbar";
+import { ProactiveToast } from "./components/ProactiveToast";
+import { DashboardHome } from "./pages/DashboardHome";
+import { BillsAndPayments } from "./pages/BillsAndPayments";
+import { Usage } from "./pages/Usage";
+import { ServiceRequests } from "./pages/ServiceRequests";
+import { Programs } from "./pages/Programs";
+import { ReactiveEmail } from "./pages/ReactiveEmail";
 
 export default function App() {
-  const {
-    customerId,
-    sinceHours,
-    insights,
-    alerts,
-    copilotContext,
-    selectedDate,
-    loading,
-    error,
-    onDateSelect,
-    onAckAlert,
-    onInsightAction,
-  } = useDashboardData();
+  const dashboardProps = useDashboard();
 
   return (
-    <div className="page">
-      <header className="hero">
-        <h1>Universal Utility Zero-Clicks Dashboard</h1>
-        <p>
-          Customer <strong>{customerId}</strong> · Last {sinceHours}h
-        </p>
-      </header>
-
-      {error && <div className="error-banner">{error}</div>}
-      {loading && <div className="loading-banner">Loading AI insights...</div>}
-
-      <InsightsSection insights={insights} onInsightAction={onInsightAction} />
-      <CopilotSection
-        selectedDate={selectedDate}
-        context={copilotContext}
-        onDateSelect={onDateSelect}
+    <div className="layout">
+      <Topbar
+        customerId={dashboardProps.customerId}
+        orchStatus={dashboardProps.orchStatus}
+        onProactiveTrigger={dashboardProps.triggerProactiveNotification}
+        proactiveLoading={dashboardProps.proactiveLoading}
+        hasUnreadProactive={dashboardProps.hasUnreadProactive}
       />
-      <AlertsSection alerts={alerts} onAckAlert={onAckAlert} />
+
+      <ProactiveToast
+        toast={dashboardProps.proactiveToast}
+        onDismiss={dashboardProps.dismissToast}
+      />
+
+      <Routes>
+        <Route path="/" element={<DashboardHome {...dashboardProps} />} />
+        <Route path="/bills" element={<BillsAndPayments />} />
+        <Route path="/usage" element={<Usage usageData={dashboardProps.usageData} />} />
+        <Route path="/service-requests" element={<ServiceRequests />} />
+        <Route path="/programs" element={<Programs />} />
+        <Route path="/reactive-email" element={<ReactiveEmail {...dashboardProps} />} />
+      </Routes>
     </div>
   );
 }
