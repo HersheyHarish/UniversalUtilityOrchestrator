@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { IcDashboard, IcAgents, IcHealth, IcLogOut, IcMetrics, IcTrace } from "./Icons.jsx";
+import { agents as agentsApi } from "../api/client.js";
 
 const NAV = [
   { path: "/dashboard", label: "Dashboard", Icon: IcDashboard },
@@ -15,6 +16,45 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+
+  // Background cold-start pinging loop
+  useEffect(() => {
+    let timerId = null;
+    const checkAndPing = async () => {
+      const enabled = localStorage.getItem("coldStartPingEnabled") === "true";
+      if (!enabled) {
+        timerId = setTimeout(checkAndPing, 2000);
+        return;
+      }
+
+      const intervalMs = parseInt(localStorage.getItem("coldStartPingInterval") || "30000", 10);
+      const lastPingTime = parseInt(localStorage.getItem("coldStartLastPingTime") || "0", 10);
+      const now = Date.now();
+
+      if (now - lastPingTime >= intervalMs) {
+        localStorage.setItem("coldStartLastPingTime", String(now));
+        // Emit trigger event
+        window.dispatchEvent(new CustomEvent("coldStartPingTriggered", { detail: { timestamp: now } }));
+        try {
+          const res = await agentsApi.pingAll();
+          localStorage.setItem("coldStartLastPingStatus", "success");
+          localStorage.setItem("coldStartLastPingTimestamp", String(Date.now()));
+          window.dispatchEvent(new CustomEvent("coldStartPingSuccess", { detail: { timestamp: Date.now(), results: res.results } }));
+        } catch (e) {
+          console.warn("Background cold-start ping failed:", e);
+          localStorage.setItem("coldStartLastPingStatus", "error");
+          localStorage.setItem("coldStartLastPingError", e.message || "Failed to contact registry");
+          localStorage.setItem("coldStartLastPingTimestamp", String(Date.now()));
+          window.dispatchEvent(new CustomEvent("coldStartPingFailed", { detail: { timestamp: Date.now(), error: e.message } }));
+        }
+      }
+
+      timerId = setTimeout(checkAndPing, 2000);
+    };
+
+    timerId = setTimeout(checkAndPing, 2000);
+    return () => clearTimeout(timerId);
+  }, []);
 
   const handleLogout = async () => {
     await logout();

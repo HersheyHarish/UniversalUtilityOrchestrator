@@ -50,6 +50,16 @@ export default function HealthMonitor() {
   const [error,    setError]    = useState("");
   const [lastRun,  setLastRun]  = useState(null);
 
+  // Cold Start Pinger configuration state
+  const [coldStartEnabled, setColdStartEnabled] = useState(
+    localStorage.getItem("coldStartPingEnabled") === "true"
+  );
+  const [coldStartInterval, setColdStartInterval] = useState(
+    parseInt(localStorage.getItem("coldStartPingInterval") || "30000", 10)
+  );
+  const [coldStartCountdown, setColdStartCountdown] = useState(null);
+  const [coldStartStatusLog, setColdStartStatusLog] = useState("");
+
   const run = async () => {
     setLoading(true); setError("");
     try {
@@ -64,17 +74,104 @@ export default function HealthMonitor() {
     }
   };
 
+  // Regular auto-refresh timer (foreground check)
   useEffect(() => {
     if (!autoRun) return;
     const id = setInterval(run, 60_000);
     return () => clearInterval(id);
   }, [autoRun]);
 
+  // Cold Start live timer
+  useEffect(() => {
+    if (!coldStartEnabled) {
+      setColdStartCountdown(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const lastPing = parseInt(localStorage.getItem("coldStartLastPingTime") || "0", 10);
+      const now = Date.now();
+      const diff = now - lastPing;
+      const rem = Math.max(0, Math.ceil((coldStartInterval - diff) / 1000));
+      setColdStartCountdown(rem);
+
+      // Build live status message
+      const status = localStorage.getItem("coldStartLastPingStatus") || "";
+      const timestampStr = localStorage.getItem("coldStartLastPingTimestamp");
+      if (timestampStr) {
+        const time = new Date(parseInt(timestampStr, 10)).toLocaleTimeString();
+        if (status === "success") {
+          setColdStartStatusLog(`Last background check: SUCCESS at ${time}`);
+        } else if (status === "error") {
+          const err = localStorage.getItem("coldStartLastPingError") || "Unknown error";
+          setColdStartStatusLog(`Last background check: FAILED at ${time} (${err})`);
+        }
+      }
+    };
+
+    updateTimer();
+    const timerId = setInterval(updateTimer, 1000);
+    return () => clearInterval(timerId);
+  }, [coldStartEnabled, coldStartInterval]);
+
+  // Listen to custom window events triggered by Layout background loop
+  useEffect(() => {
+    const handlePingTriggered = () => {
+      setLoading(true);
+      setError("");
+    };
+
+    const handlePingSuccess = (e) => {
+      setLoading(false);
+      if (e.detail?.results) {
+        setResults(e.detail.results);
+        const checked = e.detail.results.length;
+        const healthy = e.detail.results.filter(r => r.status === "healthy").length;
+        const degraded = e.detail.results.filter(r => r.status === "degraded").length;
+        setSummary({ checked, healthy, degraded });
+      }
+      setLastRun(new Date().toLocaleTimeString());
+    };
+
+    const handlePingFailed = (e) => {
+      setLoading(false);
+      setError(e.detail?.error || "Background check failed.");
+    };
+
+    window.addEventListener("coldStartPingTriggered", handlePingTriggered);
+    window.addEventListener("coldStartPingSuccess", handlePingSuccess);
+    window.addEventListener("coldStartPingFailed", handlePingFailed);
+
+    return () => {
+      window.removeEventListener("coldStartPingTriggered", handlePingTriggered);
+      window.removeEventListener("coldStartPingSuccess", handlePingSuccess);
+      window.removeEventListener("coldStartPingFailed", handlePingFailed);
+    };
+  }, []);
+
+  const handleToggleColdStart = (e) => {
+    const val = e.target.checked;
+    setColdStartEnabled(val);
+    localStorage.setItem("coldStartPingEnabled", String(val));
+    if (val) {
+      localStorage.setItem("coldStartLastPingTime", String(Date.now()));
+    }
+  };
+
+  const handleChangeInterval = (e) => {
+    const val = parseInt(e.target.value, 10);
+    setColdStartInterval(val);
+    localStorage.setItem("coldStartPingInterval", String(val));
+    localStorage.setItem("coldStartLastPingTime", String(Date.now()));
+  };
+
   const healthy   = results.filter(r => r.status === "healthy");
   const unhealthy = results.filter(r => r.status !== "healthy");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      
+      {/* Page Header */}
       <div className="page-header">
         <div>
           <div className="page-title">Health monitor</div>
@@ -104,6 +201,60 @@ export default function HealthMonitor() {
       </div>
 
       {error && <Alert type="error" onClose={() => setError("")}>{error}</Alert>}
+
+      {/* ── Cold Start Pinging Panel ── */}
+      <div className="card" style={{ padding: "16px 20px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <div style={{ fontSize: 24 }}>❄️</div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+                Cold Start Prevention Pinger
+                {coldStartEnabled && (
+                  <span className="badge badge-success" style={{ padding: "2px 8px", fontSize: 10 }}>Active</span>
+                )}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>
+                Keep agent containers warm by continuously pinging them in the background.
+              </div>
+            </div>
+          </div>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+              <input type="checkbox" checked={coldStartEnabled} onChange={handleToggleColdStart}
+                style={{ width: 16, height: 16, cursor: "pointer" }} />
+              Enable background pinging
+            </label>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Interval:</span>
+              <select className="form-control" value={coldStartInterval} onChange={handleChangeInterval}
+                disabled={!coldStartEnabled} style={{ padding: "4px 8px", fontSize: 13, width: 120 }}>
+                <option value="10000">10 seconds</option>
+                <option value="30000">30 seconds</option>
+                <option value="60000">1 minute</option>
+                <option value="300000">5 minutes</option>
+                <option value="600000">10 minutes</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {coldStartEnabled && (
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12,
+            borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 12, fontSize: 13 }}>
+            <span style={{ color: "var(--text-secondary)" }}>
+              {coldStartStatusLog || "Waiting for first background ping..."}
+            </span>
+            {coldStartCountdown !== null && (
+              <span style={{ fontWeight: 600, color: "var(--c-primary)" }}>
+                Next ping in: {coldStartCountdown}s
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Summary pills */}
       {summary && (
