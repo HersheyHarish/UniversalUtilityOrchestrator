@@ -32,6 +32,7 @@ def _client() -> CosmosClient:
             _ENDPOINT,
             credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
             connection_verify=False,
+            enable_endpoint_discovery=False,
         )
     global _CREDENTIAL
     if _CREDENTIAL is None:

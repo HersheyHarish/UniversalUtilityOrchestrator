@@ -18,6 +18,7 @@ try:
     import planner
     import runtime_contract
     import synthesizer
+    import trace_writer
     from trace_writer import TraceContext
     from models import ChatRequest, ProactiveTriggerRequest, StandardResponse, StandardResponse, SessionDoc, SessionStatus
 except Exception as _e:
@@ -155,22 +156,23 @@ async def _build_trace(session_id: str, message: str, customer_id: str, trigger_
 async def _create_or_load_session(session_id: str | None, message: str, customer_id: str) -> SessionDoc:
     if session_id:
         existing = await memory.get_session(session_id)
+        if existing:
+            return SessionDoc(**{
+                k: v
+                for k, v in existing.items()
+                if k in SessionDoc.model_fields
+            })
+        log.info("Session %s not found. Creating a new session with client-provided ID.", session_id)
 
-        if not existing:
-            raise ValueError(f"Session '{session_id}' not found")
+    # Initialize a new session doc, passing the ID if it was provided by the client
+    doc_args = {
+        "user_message": message,
+        "customer_id": customer_id,
+    }
+    if session_id:
+        doc_args["id"] = session_id
 
-        return SessionDoc(**{
-            k: v
-            for k, v in existing.items()
-            if k in SessionDoc.model_fields
-        })
-
-    return await memory.create_session(
-        SessionDoc(
-            user_message=message,
-            customer_id=customer_id,
-        )
-    )
+    return await memory.create_session(SessionDoc(**doc_args))
 
 async def _process_request(message: str, customer_id: str, trigger_type: str, session_id: str | None = None, metadata: dict | None = None, save_message_fn = None):
     chat_history = []

@@ -35,7 +35,7 @@ async def main():
     print(f"Connecting to Cosmos Emulator at {ENDPOINT} ...")
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            async with CosmosClient(ENDPOINT, credential=KEY, connection_verify=False) as client:
+            async with CosmosClient(ENDPOINT, credential=KEY, connection_verify=False, enable_endpoint_discovery=False) as client:
                 # Create database
                 db = await client.create_database_if_not_exists(DATABASE)
                 print(f"✓ Database '{DATABASE}' ready")

@@ -120,26 +120,34 @@ class AgentResponse(BaseModel):
 
 class SessionDoc(BaseModel):
     id:            str = Field(default_factory=_uuid)
-    partition_key: str = ""          # set to id after creation
+    partition_key: str = ""          # legacy mirror of id; kept for older docs / queries
+    session_id:    str = ""          # must match id; used as the Cosmos partition key value
+    user_message:  str = ""
     customer_id:   str | None = None
     status:        SessionStatus = SessionStatus.PLANNING
+    plan:          dict[str, Any] | None = None
+    final_response:str | None = None
     created_at:    str = Field(default_factory=_now)
     updated_at:    str = Field(default_factory=_now)
 
     def model_post_init(self, __context: Any) -> None:
+        if not self.session_id:
+            self.session_id = self.id
         if not self.partition_key:
             self.partition_key = self.id
 
 
 class MessageDoc(BaseModel):
-    id:          str = Field(default_factory=_uuid)
+    id:            str = Field(default_factory=_uuid)
     partition_key: str           # = session_id
-    session_id:  str
-    role:        MessageRole
-    type:        MessageType
-    content:     str
-    metadata:    dict[str, Any] = Field(default_factory=dict)
-    created_at:  str = Field(default_factory=_now)
+    session_id:    str
+    role:          MessageRole
+    type:          MessageType
+    step_id:       int | None = None
+    agent_name:    str | None = None
+    content:       str
+    metadata:      dict[str, Any] = Field(default_factory=dict)
+    created_at:    str = Field(default_factory=_now)
 
 # ── HTTP API models ───────────────────────────────────────────────────────────
 

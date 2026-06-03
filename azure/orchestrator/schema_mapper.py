@@ -6,13 +6,16 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from openai import AsyncOpenAI
+from openai import AsyncAzureOpenAI
 from models import FieldDecision, MappingResult
 
 log = logging.getLogger(__name__)
 
-_OAI_ENDPOINT   = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+# Strip any path suffixes from the endpoint — AsyncAzureOpenAI needs just the host
+_OAI_ENDPOINT_RAW = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+_OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+_OAI_API_VER = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
 
 class SchemaMapError(Exception):
     """Raised when a required field cannot be populated."""
@@ -23,10 +26,14 @@ class SchemaMapError(Exception):
 # OpenAI client
 # =============================================================================
 
-async def _get_client() -> AsyncOpenAI:
+async def _get_client() -> AsyncAzureOpenAI:
     from planner import _get_secret
     api_key = await _get_secret(os.environ.get("OPENAI_SECRET_NAME", "openai-api-key"))
-    _openai_client = AsyncOpenAI(base_url=_OAI_ENDPOINT, api_key=api_key)
+    _openai_client = AsyncAzureOpenAI(
+        azure_endpoint=_OAI_ENDPOINT,
+        api_key=api_key,
+        api_version=_OAI_API_VER,
+    )
     return _openai_client
 
 
@@ -50,6 +57,7 @@ Rules (MUST follow exactly):
 5. NEVER add explanations, comments, or prose — JSON object ONLY.
 6. Coerce values to the correct type (string, number, boolean, array, object).
 7. For object fields: recursively apply the same rules to nested fields.
+8. Active Simulation Time Context: The active system simulation date is July 2019. If the task or context asks for "current", "recent", "most recent", or "ongoing" outages or billing, resolve/infer these to "July 2019" or a date range like "2019-07-01 - 2019-07-31" in the query/date fields to comply with agent requirements.
 
 Output: a single JSON object. Nothing else."""
 
@@ -233,7 +241,7 @@ async def build(
                     {"role": "user",   "content": user_msg},
                 ],
                 temperature=0.0,
-                max_tokens=1000,
+                max_completion_tokens=1000,
             )
             tokens_used += response.usage.total_tokens if response.usage else 0
             raw_text    = response.choices[0].message.content or "{}"

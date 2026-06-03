@@ -14,6 +14,95 @@ function toAgentCreate(raw) {
   for (const key of AGENT_CREATE_FIELDS) {
     if (key in raw) out[key] = raw[key];
   }
+
+  // 1. Map "endpoint" -> "endpoint_url"
+  if (!out.endpoint_url && raw.endpoint) {
+    out.endpoint_url = raw.endpoint;
+  }
+
+  // 2. Map "capabilities" (list of strings -> list of Capability objects)
+  if (Array.isArray(raw.capabilities) && raw.capabilities.length > 0) {
+    if (typeof raw.capabilities[0] === "string") {
+      out.capabilities = raw.capabilities.map((desc, idx) => {
+        const words = (desc || "")
+          .replace(/[^a-zA-Z0-9\s]/g, "")
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 3)
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1));
+        const prefix = words.join("_") || "Capability";
+        const cleanName = `${prefix}_${raw.name}`;
+        return {
+          name: cleanName,
+          description: desc,
+          input_schema: {},
+          output_schema: {}
+        };
+      });
+    }
+  }
+
+  // 3. Map "timeout_seconds" -> "invocation_config.timeout_seconds"
+  if (raw.timeout_seconds !== undefined) {
+    if (!out.invocation_config) {
+      out.invocation_config = {};
+    }
+    out.invocation_config.timeout_seconds = parseInt(raw.timeout_seconds, 10);
+  }
+
+  // 4. Map "health_check" -> "health_check_config.health_check_url"
+  if (raw.health_check) {
+    if (!out.health_check_config) {
+      out.health_check_config = {
+        check_type: "http"
+      };
+    }
+    out.health_check_config.health_check_url = raw.health_check;
+  }
+
+  // 5. Map "input_schema" / "output_schema" -> "invocation_config.request_schema"
+  if (raw.input_schema) {
+    if (!out.invocation_config) {
+      out.invocation_config = {};
+    }
+    if (!out.invocation_config.request_schema) {
+      out.invocation_config.request_schema = {
+        fields: [],
+        strict: true
+      };
+    }
+    out.invocation_config.request_schema.json_schema = raw.input_schema;
+
+    if (raw.input_schema.properties && typeof raw.input_schema.properties === "object") {
+      const requiredFields = new Set(raw.input_schema.required || []);
+      const fields = [];
+      for (const [name, prop] of Object.entries(raw.input_schema.properties)) {
+        let ftype = "string";
+        if (typeof prop.type === "string") {
+          ftype = prop.type === "integer" ? "number" : prop.type;
+        } else if (Array.isArray(prop.type) && prop.type.length > 0) {
+          const primaryType = prop.type[0];
+          ftype = primaryType === "integer" ? "number" : primaryType;
+        }
+        fields.push({
+          name: name,
+          description: prop.description || `Property ${name}`,
+          required: requiredFields.has(name),
+          field_type: ftype,
+          nested_fields: []
+        });
+      }
+      out.invocation_config.request_schema.fields = fields;
+    }
+  }
+
+  // 6. Map "enabled" -> status
+  if (raw.enabled === false) {
+    out.status = "inactive";
+  } else if (raw.enabled === true) {
+    out.status = "active";
+  }
+
   return out;
 }
 

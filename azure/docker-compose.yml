@@ -9,19 +9,22 @@ services:
       - "10002:10002"
 
   cosmos:
-    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:latest
+    image: ${COSMOS_IMAGE:-mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:latest}
     container_name: cosmos_emulator
-    platform: linux/amd64
+    platform: ${COSMOS_PLATFORM:-linux/amd64}
     ports:
       - "8081:8081"
+      - "8080:8080"
+      - "1234:1234"
       - "10251-10254:10251-10254"
-    mem_limit: 3g
-    cpus: 2.0
+    mem_limit: ${COSMOS_MEM_LIMIT:-3g}
+    cpus: ${COSMOS_CPUS:-2.0}
     environment:
       - AZURE_COSMOS_EMULATOR_PARTITION_COUNT=5
       - AZURE_COSMOS_EMULATOR_ENABLE_DATA_EXPLORER=true
+      - AZURE_COSMOS_EMULATOR_IP_ADDRESS_OVERRIDE=${COSMOS_IP_OVERRIDE:-cosmos}
     healthcheck:
-      test: ["CMD", "curl", "-kf", "https://localhost:8081/_explorer/emulator.pem"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ready || curl -kf https://localhost:8081/_explorer/emulator.pem"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -37,9 +40,11 @@ services:
         condition: service_healthy
     env_file:
       - ./orchestrator/.env
+    volumes:
+      - ./registry:/home/site/wwwroot
     environment:
       - USE_LOCAL_EMULATORS=true
-      - COSMOS_ENDPOINT=https://cosmos:8081/
+      - COSMOS_ENDPOINT=${COSMOS_ENDPOINT:-https://cosmos:8081/}
       - COSMOS_DATABASE=utility_agent_db
     command: ["python", "/home/site/wwwroot/init_cosmos_emulator.py"]
 
@@ -67,7 +72,7 @@ services:
       - USE_LOCAL_EMULATORS=true
       - ORCHESTRATOR_STRICT_MODE=false
       - ORCHESTRATOR_DEMO_STEPS=true
-      - COSMOS_ENDPOINT=https://cosmos:8081/
+      - COSMOS_ENDPOINT=${COSMOS_ENDPOINT:-https://cosmos:8081/}
       - COSMOS_DATABASE=utility_agent_db
       - ORCHESTRATOR_HTTP_AUTH_LEVEL=ANONYMOUS
       - CORS_ALLOWED_ORIGINS=["http://localhost:5174","http://localhost:3000","http://127.0.0.1:5174","http://127.0.0.1:3000","http://localhost:5173","http://127.0.0.1:5173"]
@@ -96,7 +101,7 @@ services:
       - APP_ENV=local
       - USE_LOCAL_EMULATORS=true
       - REGISTRY_STRICT_MODE=false
-      - COSMOS_ENDPOINT=https://cosmos:8081/
+      - COSMOS_ENDPOINT=${COSMOS_ENDPOINT:-https://cosmos:8081/}
       - COSMOS_DATABASE=utility_agent_db
       - REGISTRY_HTTP_AUTH_LEVEL=ANONYMOUS
       - CONTAINER_NAME=azure_registry
