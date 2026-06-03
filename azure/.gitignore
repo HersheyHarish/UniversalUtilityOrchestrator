@@ -4,6 +4,10 @@
 .env.*.local
 local.settings.json
 
+# Agent registry exports may contain live endpoint URLs — do not commit
+registry/registry-export.json
+**/registry-export.json
+
 # Node modules and dependencies
 node_modules/
 .npm
