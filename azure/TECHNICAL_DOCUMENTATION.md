@@ -641,7 +641,7 @@ Exported namespaces: `auth`, `agents`, `registry`, `traces`, `observability`, `p
 
 ### 10.3 Import agent feature
 
-`ImportAgentModal.jsx` accepts three input formats:
+`ImportAgentsModal.jsx` accepts three input formats:
 - Single agent object: `{ "name": "...", "endpoint_url": "..." }`
 - Array: `[{ ... }, { ... }]`
 - Export envelope: `{ "agents": [{ ... }] }`

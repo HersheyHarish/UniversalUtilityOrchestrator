@@ -189,7 +189,7 @@ utility-agent/
 │   │       ├── AgentList.jsx        ← with Import button
 │   │       ├── AgentDetail.jsx
 │   │       ├── AgentForm.jsx        ← register + edit
-│   │       ├── ImportAgentModal.jsx ← file picker + editable JSON + per-agent results
+│   │       ├── ImportAgentsModal.jsx ← file picker + editable JSON + per-agent results
 │   │       ├── HealthMonitor.jsx
 │   │       ├── Icons.jsx
 │   │       ├── Primitives.jsx

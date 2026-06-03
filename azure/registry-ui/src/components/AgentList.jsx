@@ -10,7 +10,7 @@ import {
   IcChevronRight, IcDownload, IcFilter, IcUpload
 } from "./Icons.jsx";
 import AgentForm from "./AgentForm.jsx";
-import ImportAgentModal from "./ImportAgentModal.jsx";
+import ImportAgentsModal from "./ImportAgentsModal.jsx";
 
 const STATUS_FILTERS = ["all", "active", "inactive", "degraded"];
 const UTILITY_FILTERS = ["all", "electric", "gas", "water", "multi"];
@@ -322,7 +322,7 @@ export default function AgentList() {
       )}
 
       {showImport && (
-        <ImportAgentModal
+        <ImportAgentsModal
           onImported={handleImported}
           onCancel={() => setShowImport(false)}
         />
