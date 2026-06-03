@@ -1,3 +1,16 @@
+"""
+memory.py — Cosmos DB memory layer.
+
+Security: DefaultAzureCredential (Managed Identity in Azure, CLI locally).
+No connection strings or keys in this file.
+
+Fix: a single module-level credential is created once and reused across all
+calls. Previously a new DefaultAzureCredential() was instantiated inside
+every _query()/_upsert() call; each credential spins up its own internal
+aiohttp ClientSession which was never closed, producing the
+"Unclosed client session" errors in the logs.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,17 +18,23 @@ import logging
 import os
 from typing import Any
 
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 from azure.cosmos import exceptions as cosmos_exc
 from azure.cosmos.aio import CosmosClient
 from azure.identity.aio import DefaultAzureCredential
-from models import MessageRole, SessionDoc, MessageDoc, SessionStatus, MessageType, ExecutionPlan
-from datetime import datetime, timezone
+from models import ExecutionPlan, MessageDoc, MessageType, SessionDoc, SessionStatus
 
 log = logging.getLogger(__name__)
 
 _ENDPOINT = os.environ["COSMOS_ENDPOINT"]
 _DATABASE = os.environ.get("COSMOS_DATABASE", "utility_agent_db")
 
+# Single credential instance — created once at module load, reused for every
+# Cosmos call. DefaultAzureCredential internally caches its token and only
+# fetches a new one when the current token is about to expire.
 _CREDENTIAL: DefaultAzureCredential | None = None
 
 
@@ -23,6 +42,11 @@ _CREDENTIAL: DefaultAzureCredential | None = None
 
 
 def _client() -> CosmosClient:
+    """
+    Return a CosmosClient that shares the module-level credential.
+    Used as `async with _client() as c:` — the client is closed after each
+    block but the underlying credential (and its token cache) persists.
+    """
     app_env = os.environ.get("APP_ENV", "local").strip().lower()
     use_local = os.environ.get("USE_LOCAL_EMULATORS", "").lower() == "true"
     if app_env in {"prod", "production"} and use_local:
@@ -62,6 +86,12 @@ async def _query(
     params: list[dict] | None = None,
     pk: str | None = None,
 ) -> list[dict[str, Any]]:
+    """
+    Execute a Cosmos DB SQL query.
+
+    azure-cosmos 4.x removed enable_cross_partition_query — cross-partition
+    queries run automatically when partition_key is omitted.
+    """
     async with _client() as c:
         ctr = c.get_database_client(_DATABASE).get_container_client(container_name)
         kwargs: dict[str, Any] = {
@@ -82,10 +112,13 @@ async def create_session(doc: SessionDoc) -> SessionDoc:
 
 
 async def update_session(session_id: str, **fields) -> None:
+    from datetime import datetime, timezone
+
     existing = await _read("sessions", session_id, session_id)
     if not existing:
         log.warning("update_session: session %s not found", session_id)
         return
+    # Container partition path is /session_id — ensure persisted docs always have it
     if not existing.get("session_id"):
         existing["session_id"] = existing.get("id") or session_id
     if not existing.get("partition_key"):
@@ -98,10 +131,10 @@ async def update_session(session_id: str, **fields) -> None:
 async def get_session(session_id: str) -> dict[str, Any] | None:
     return await _read("sessions", session_id, session_id)
 
-async def append_message(msg: MessageDoc) -> None:
-    await _upsert("messages", msg.model_dump())
 
 async def get_sessions_by_customer(customer_id: str) -> list[dict[str, Any]]:
+    # Avoid ORDER BY on _ts here: cross-partition ORDER BY often fails on the emulator
+    # or without a composite index; sort in-process instead.
     rows = await _query(
         "sessions",
         "SELECT * FROM c WHERE c.customer_id = @cid",
@@ -124,6 +157,7 @@ async def set_dashboard_alert_state(
     status: str,
     action: str | None = None,
 ) -> None:
+    """Persist dashboard alert acknowledgement state on the session doc."""
     session = await _read("sessions", session_id, session_id)
     if not session:
         return
@@ -140,47 +174,52 @@ async def set_dashboard_alert_state(
 # ── Message operations ────────────────────────────────────────────────────────
 
 
+async def append_message(msg: MessageDoc) -> None:
+    await _upsert("messages", msg.model_dump())
+
+
 async def save_user_message(session_id: str, text: str) -> None:
     await append_message(
         MessageDoc(
             partition_key=session_id,
             session_id=session_id,
-            role=MessageRole.USER,
             type=MessageType.USER_INPUT,
             content=text,
         )
     )
 
-async def save_proactive_message(session_id: str, text: str, metadata: dict) -> None:
-    await append_message(MessageDoc(
-        partition_key=session_id,
-        session_id=session_id,
-        role=MessageRole.SYSTEM_TRIGGER,
-        type=MessageType.PROACTIVE_TRIGGER,
-        content=text,
-        metadata=metadata
-    ))
+
+async def save_proactive_message(session_id: str, text: str, metadata: dict | None = None) -> None:
+    await append_message(
+        MessageDoc(
+            partition_key=session_id,
+            session_id=session_id,
+            type=MessageType.PROACTIVE,
+            content=text,
+            metadata=metadata or {},
+        )
+    )
+
 
 async def save_plan(session_id: str, plan: ExecutionPlan) -> None:
     await append_message(
         MessageDoc(
             partition_key=session_id,
             session_id=session_id,
-            role=MessageRole.ORCHESTRATOR,
             type=MessageType.PLAN,
             content=json.dumps(plan.model_dump()),
             metadata={"plan_id": plan.plan_id, "num_steps": len(plan.steps)},
         )
     )
-    await update_session(session_id, status=SessionStatus.EXECUTING)
+    await update_session(session_id, plan=plan.model_dump(), status=SessionStatus.EXECUTING)
+
 
 async def save_step_start(session_id: str, step_id: int, agent_name: str, task: str) -> None:
     await append_message(
         MessageDoc(
             partition_key=session_id,
             session_id=session_id,
-            role=MessageRole.AGENT,
-            type=MessageType.EXEC_START,
+            type=MessageType.STEP_START,
             step_id=step_id,
             agent_name=agent_name,
             content=task,
@@ -188,13 +227,14 @@ async def save_step_start(session_id: str, step_id: int, agent_name: str, task: 
     )
 
 
-async def save_step_result(session_id: str, step_id: int, agent_name: str, result: str, metadata: dict | None = None) -> None:
+async def save_step_result(
+    session_id: str, step_id: int, agent_name: str, result: str, metadata: dict | None = None
+) -> None:
     await append_message(
         MessageDoc(
             partition_key=session_id,
             session_id=session_id,
-            role=MessageRole.AGENT,
-            type=MessageType.EXEC_RESULT,
+            type=MessageType.STEP_RESULT,
             step_id=step_id,
             agent_name=agent_name,
             content=result,
@@ -208,8 +248,7 @@ async def save_step_error(session_id: str, step_id: int, agent_name: str, error:
         MessageDoc(
             partition_key=session_id,
             session_id=session_id,
-            role=MessageRole.AGENT,
-            type=MessageType.EXEC_ERROR,
+            type=MessageType.STEP_ERROR,
             step_id=step_id,
             agent_name=agent_name,
             content=error,
@@ -222,12 +261,11 @@ async def save_final_response(session_id: str, response: str) -> None:
         MessageDoc(
             partition_key=session_id,
             session_id=session_id,
-            role=MessageRole.SYSTEM,
             type=MessageType.FINAL,
             content=response,
         )
     )
-    await update_session(session_id, status=SessionStatus.COMPLETE)
+    await update_session(session_id, final_response=response, status=SessionStatus.COMPLETE)
 
 
 async def get_step_results(session_id: str) -> list[dict[str, Any]]:
@@ -236,27 +274,72 @@ async def get_step_results(session_id: str) -> list[dict[str, Any]]:
         "SELECT * FROM c WHERE c.session_id = @sid AND c.type = @t ORDER BY c.step_id",
         params=[
             {"name": "@sid", "value": session_id},
-            {"name": "@t", "value": MessageType.EXEC_RESULT},
+            {"name": "@t", "value": MessageType.STEP_RESULT},
         ],
         pk=session_id,
     )
 
-async def get_conversation_history(session_id: str, limit: int = 10) -> list[dict]:
+
+def _transcript_limits() -> tuple[int, int]:
+    max_turns = int(os.environ.get("ORCHESTRATOR_TRANSCRIPT_MAX_TURNS", "20"))
+    max_chars = int(os.environ.get("ORCHESTRATOR_TRANSCRIPT_MAX_CHARS", "12000"))
+    return max_turns, max_chars
+
+
+async def get_session_transcript(
+    session_id: str,
+    *,
+    max_turns: int | None = None,
+    max_chars_per_turn: int | None = None,
+    exclude_current_user: bool = False,
+) -> list[dict[str, str]]:
+    """
+    Chronological user/assistant turns from the messages container.
+    """
+    default_turns, default_chars = _transcript_limits()
+    turn_limit = max_turns if max_turns is not None else default_turns
+    char_limit = max_chars_per_turn if max_chars_per_turn is not None else default_chars
+
     rows = await _query(
         "messages",
-        "SELECT TOP @n c.role, c.content, c.created_at FROM c WHERE c.session_id  = @sid AND c.role IN ('user', 'assistant') AND c.message_type = 'reactive' ORDER BY c.created_at DESC",
+        "SELECT c.type, c.content, c.created_at FROM c "
+        "WHERE c.session_id = @sid AND (c.type = @user OR c.type = @final) "
+        "ORDER BY c.created_at",
         params=[
             {"name": "@sid", "value": session_id},
-            {"name": "@n",   "value": limit},
+            {"name": "@user", "value": MessageType.USER_INPUT},
+            {"name": "@final", "value": MessageType.FINAL},
         ],
         pk=session_id,
     )
-    rows.reverse()
- 
-    return [
-        {"role": row["role"], "content": row["content"]}
-        for row in rows
-    ]
+
+    transcript: list[dict[str, str]] = []
+    for row in rows:
+        role = "user" if row.get("type") == MessageType.USER_INPUT else "assistant"
+        content = (row.get("content") or "").strip()
+        if not content:
+            continue
+        entry: dict[str, str] = {
+            "role": role,
+            "content": content[:char_limit],
+            "created_at": row.get("created_at") or "",
+        }
+        transcript.append(entry)
+
+    if exclude_current_user and transcript and transcript[-1]["role"] == "user":
+        transcript = transcript[:-1]
+
+    if turn_limit > 0 and len(transcript) > turn_limit:
+        transcript = transcript[-turn_limit:]
+
+    return transcript
+
+
+async def get_conversation_history(session_id: str, limit: int = 8) -> list[dict[str, str]]:
+    """Backward-compatible wrapper for planner-style history."""
+    rows = await get_session_transcript(session_id, max_turns=limit)
+    return [{"role": r["role"], "content": r["content"]} for r in rows]
+
 
 # ── Agent registry ────────────────────────────────────────────────────────────
 

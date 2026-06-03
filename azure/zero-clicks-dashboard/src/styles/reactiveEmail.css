@@ -1,0 +1,464 @@
+/* Styles for the Reactive Email Page */
+
+.reactive-email-container {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text-primary, #F8FAFC);
+}
+
+.reactive-email-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-default, rgba(255,255,255,0.08));
+  padding-bottom: 20px;
+}
+
+.reactive-email-header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.5px;
+}
+
+.reactive-email-header .subtitle {
+  color: var(--text-secondary, #94A3B8);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Simulate Button styling */
+.btn-simulate {
+  background: var(--brand-blue, #0070F3);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(0, 112, 243, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-simulate:hover:not(:disabled) {
+  background: #0060d3;
+  transform: translateY(-1px);
+}
+
+.btn-simulate:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-simulate:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.spinner-small {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Grid Layout */
+.reactive-email-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .reactive-email-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.reactive-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Cards Design */
+.dashboard-card {
+  background: var(--surface-1, rgba(30, 41, 59, 0.7));
+  border: 1px solid var(--border-default, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+}
+
+.card-header-clean {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 12px;
+}
+
+.card-header-clean h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #E2E8F0);
+}
+
+.badge-area {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+
+/* SVG Map View Styling */
+.map-view-wrapper {
+  background: var(--surface-2, #0F172A);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.austin-grid-map {
+  width: 100%;
+  height: auto;
+  max-height: 350px;
+  display: block;
+}
+
+/* Map Animations */
+.outage-overlay-pulse {
+  animation: pulse-outage 3.5s ease-in-out infinite;
+  transform-origin: 260px 180px;
+}
+
+@keyframes pulse-outage {
+  0% {
+    r: 85px;
+    opacity: 0.1;
+  }
+  50% {
+    r: 105px;
+    opacity: 0.35;
+  }
+  100% {
+    r: 85px;
+    opacity: 0.1;
+  }
+}
+
+.customer-node-pulse {
+  fill: #3b82f6;
+  opacity: 0.4;
+  animation: pulse-customer 2s infinite;
+  transform-origin: 0 0;
+}
+
+@keyframes pulse-customer {
+  0% {
+    r: 6px;
+    opacity: 0.7;
+  }
+  100% {
+    r: 18px;
+    opacity: 0;
+  }
+}
+
+/* Map Legend */
+.map-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--text-secondary, #94A3B8);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legend-dot.healthy { background: #10B981; }
+.legend-dot.affected { background: #EF4444; }
+.legend-dot.customer { background: #0A84FF; }
+
+/* Pipeline Execution Trace */
+.pipeline-card {
+  flex: 1;
+}
+
+.session-tag {
+  font-family: monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary, #94A3B8);
+}
+
+.empty-state-placeholder {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary, #64748B);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.pipeline-loading-steps {
+  padding: 30px;
+  text-align: center;
+}
+
+.loading-step-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.loading-step-item-sub {
+  font-size: 11px;
+  color: var(--text-secondary, #64748B);
+  margin-top: 8px;
+}
+
+.pulse-loader {
+  width: 10px;
+  height: 10px;
+  background-color: var(--brand-blue, #0070F3);
+  border-radius: 50%;
+  animation: pulse-loader 1s infinite alternate;
+}
+
+@keyframes pulse-loader {
+  to { transform: scale(1.6); opacity: 0.3; }
+}
+
+.pipeline-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pipeline-step-item-complete {
+  border-left: 3px solid #64748B;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+}
+
+.step-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.step-number {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94A3B8);
+}
+
+.step-agent-badge {
+  font-family: monospace;
+  font-size: 11px;
+  border: 1px solid;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.step-objective {
+  margin-bottom: 8px;
+  color: var(--text-primary, #E2E8F0);
+}
+
+.step-output-box {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.03);
+  overflow-x: auto;
+}
+
+.step-output-text {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  line-height: 1.4;
+  color: #CBD5E1;
+}
+
+.step-output-json {
+  margin: 0;
+  font-family: monospace;
+  font-size: 11px;
+  color: #10B981;
+}
+
+/* Email Client Panel */
+.inbox-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 580px;
+}
+
+.badge-sent {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10B981;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badge-dot-green {
+  width: 6px;
+  height: 6px;
+  background: #10B981;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.email-client-container {
+  flex: 1;
+  background: var(--surface-2, #0F172A);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 8px;
+  padding: 20px;
+  overflow-y: auto;
+  position: relative;
+}
+
+.inbox-empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  width: 80%;
+}
+
+.inbox-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.inbox-empty-state h4 {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.inbox-empty-state p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #64748B);
+  line-height: 1.4;
+}
+
+/* Email Message Layout */
+.email-metadata-block {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+
+.metadata-row {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+.meta-label {
+  width: 70px;
+  color: var(--text-secondary, #64748B);
+}
+
+.meta-value {
+  color: var(--text-primary, #E2E8F0);
+}
+
+.meta-value-subject {
+  font-weight: 600;
+  color: var(--brand-orange, #F97316);
+}
+
+.email-body-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #CBD5E1;
+}
+
+.email-body-line {
+  margin: 0 0 10px 0;
+}
+
+.email-section-heading {
+  margin: 18px 0 10px 0;
+  font-size: 14px;
+  color: var(--text-primary, #F8FAFC);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-bottom: 4px;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+
+.email-list-line {
+  margin: 0 0 6px 0;
+  padding-left: 8px;
+  color: #94A3B8;
+}
+
+.simulation-alert {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
+.simulation-alert.error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #F87171;
+}

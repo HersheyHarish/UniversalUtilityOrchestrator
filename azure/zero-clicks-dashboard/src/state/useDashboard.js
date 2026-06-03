@@ -139,11 +139,26 @@ export function useDashboard() {
   }, []);
 
   const triggerBackgroundOrchestrator = useCallback(async () => {
-    const prompt = BACKGROUND_PROMPTS[promptIndexRef.current % BACKGROUND_PROMPTS.length];
+    const index = promptIndexRef.current % BACKGROUND_PROMPTS.length;
+    const prompt = BACKGROUND_PROMPTS[index];
     promptIndexRef.current += 1;
 
+    const agentMapping = [
+      { agent: "outage_detection_agent", event: "service_disruption_check" },
+      { agent: "anomaly_detection_agent", event: "usage_anomaly_check" },
+      { agent: "solar_performance_credit_loss_agent", event: "solar_performance_check" },
+      { agent: "bill_shock_forecast_agent", event: "bill_shock_check" },
+    ];
+    const mapping = agentMapping[index];
+
     try {
-      const res = await orchestratorApi.chat(prompt, CUSTOMER_ID);
+      const res = await orchestratorApi.proactiveTrigger(
+        prompt,
+        CUSTOMER_ID,
+        mapping.agent,
+        mapping.event,
+        "medium"
+      );
       appendAgentEvent(res, "proactive");
     } catch (e) {
       console.warn("Background orchestrator job failed:", e);
@@ -178,7 +193,13 @@ export function useDashboard() {
     setProactiveLoading(true);
     setHasUnreadProactive(false);
     try {
-      const res = await orchestratorApi.chat(PROACTIVE_BUTTON_PROMPT, CUSTOMER_ID);
+      const res = await orchestratorApi.proactiveTrigger(
+        PROACTIVE_BUTTON_PROMPT,
+        CUSTOMER_ID,
+        "orchestrator",
+        "proactive_check",
+        "medium"
+      );
       appendAgentEvent(res, "proactive");
       const agentLabel = res.agents_used?.length
         ? res.agents_used.map((a) => a.replace(/_/g, " ")).join(", ")

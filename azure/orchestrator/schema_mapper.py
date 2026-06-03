@@ -1,3 +1,21 @@
+"""
+schema_mapper.py — LLM-driven request body construction.
+
+Takes a list of RequestSchemaField definitions and available runtime context,
+calls GPT-4o to map context onto fields, validates the result, and returns
+a clean dict ready to POST to the remote agent.
+
+Rules enforced:
+  - Required fields MUST be present → fail with SchemaMapError if missing
+  - Optional fields included ONLY if high-confidence → omit otherwise
+  - No null / empty-string values in the output
+  - No hallucinated extra fields (stripped when strict=True)
+  - Invalid JSON → one retry with a stricter prompt
+  - All decisions captured in MappingResult for observability
+
+Does NOT touch:
+  - http_method, headers, content-type, timeout, retry, response_result_path
+"""
 from __future__ import annotations
 import json
 import logging
@@ -6,16 +24,77 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from openai import AsyncAzureOpenAI
-from models import FieldDecision, MappingResult
+from openai import AsyncOpenAI
+
+
+@dataclass
+class RequestSchemaField:
+    name: str
+    description: str = ""
+    required: bool = False
+    field_type: str = "string"
+    default: Any = None
+    nested_fields: list["RequestSchemaField"] = field(default_factory=list)
+
+
+def fields_from_config(request_schema: dict[str, Any]) -> list[RequestSchemaField]:
+    """Build RequestSchemaField list from registry invocation_config.request_schema."""
+    raw_fields = request_schema.get("fields") or []
+    result: list[RequestSchemaField] = []
+    for f in raw_fields:
+        if isinstance(f, RequestSchemaField):
+            result.append(f)
+            continue
+        nested_raw = f.get("nested_fields") or []
+        result.append(
+            RequestSchemaField(
+                name=f["name"],
+                description=f.get("description", ""),
+                required=bool(f.get("required", False)),
+                field_type=f.get("type") or f.get("field_type") or "string",
+                default=f.get("default"),
+                nested_fields=fields_from_config({"fields": nested_raw}),
+            )
+        )
+    return result
 
 log = logging.getLogger(__name__)
 
-# Strip any path suffixes from the endpoint — AsyncAzureOpenAI needs just the host
-_OAI_ENDPOINT_RAW = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-_OAI_ENDPOINT = _OAI_ENDPOINT_RAW.split("/openai")[0].split("/api/")[0].rstrip("/")
+_OAI_ENDPOINT   = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
 _OAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-_OAI_API_VER = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
+
+# Cached per cold-start (key fetched by planner's _get_secret helper)
+_openai_client: AsyncOpenAI | None = None
+
+
+# =============================================================================
+# Data classes
+# =============================================================================
+
+@dataclass
+class FieldDecision:
+    """Records what the mapper decided for a single field."""
+    field_name:  str
+    included:    bool
+    value:       Any              = None
+    reason:      str              = ""
+    confidence:  float            = 1.0    # 0.0 – 1.0
+    inferred:    bool             = False  # True = LLM had to infer, no direct context
+
+
+@dataclass
+class MappingResult:
+    """Full output of one schema_mapper.build() call."""
+    body:              dict[str, Any]
+    decisions:         list[FieldDecision]  = field(default_factory=list)
+    warnings:          list[str]            = field(default_factory=list)
+    errors:            list[str]            = field(default_factory=list)
+    llm_tokens_used:   int                  = 0
+    mapping_latency_ms:int                  = 0
+    retry_count:       int                  = 0
+    fields_included:   list[str]            = field(default_factory=list)
+    fields_skipped:    list[str]            = field(default_factory=list)
+
 
 class SchemaMapError(Exception):
     """Raised when a required field cannot be populated."""
@@ -26,15 +105,10 @@ class SchemaMapError(Exception):
 # OpenAI client
 # =============================================================================
 
-async def _get_client() -> AsyncAzureOpenAI:
-    from planner import _get_secret
-    api_key = await _get_secret(os.environ.get("OPENAI_SECRET_NAME", "openai-api-key"))
-    _openai_client = AsyncAzureOpenAI(
-        azure_endpoint=_OAI_ENDPOINT,
-        api_key=api_key,
-        api_version=_OAI_API_VER,
-    )
-    return _openai_client
+async def _get_client() -> AsyncOpenAI | Any:
+    from openai_client import get_chat_client, is_foundry_endpoint
+
+    return await get_chat_client("default")
 
 
 # =============================================================================
@@ -87,6 +161,7 @@ Construct the request body JSON object now."""
 
 
 def _fields_to_prompt_dicts(schema_fields: list) -> list[dict]:
+    """Convert RequestSchemaField objects to plain dicts for the prompt."""
     result = []
     for f in schema_fields:
         d: dict[str, Any] = {
@@ -101,6 +176,11 @@ def _fields_to_prompt_dicts(schema_fields: list) -> list[dict]:
             d["nested_fields"] = _fields_to_prompt_dicts(f.nested_fields)
         result.append(d)
     return result
+
+
+# =============================================================================
+# Validation and post-processing
+# =============================================================================
 
 def _validate_and_clean(
     raw: dict[str, Any],
@@ -185,14 +265,23 @@ def _validate_and_clean(
         try:
             import jsonschema
             jsonschema.validate(instance=cleaned, schema=json_schema)
+        except ImportError:
+            warnings.append(
+                "jsonschema package not installed — skipping JSON Schema validation. "
+                "Add jsonschema to requirements.txt."
+            )
         except Exception as exc:
             warnings.append(f"JSON Schema validation warning: {exc}")
 
     return cleaned, decisions, warnings
 
 
+# =============================================================================
+# Main entry point
+# =============================================================================
+
 async def build(
-    schema_fields:    list,
+    schema_fields:    list,           # list[RequestSchemaField]
     strict:           bool,
     json_schema:      dict | None,
     task:             str,
@@ -201,11 +290,30 @@ async def build(
     prior_outputs:    dict[int, str],
     context_note:     str,
 ) -> MappingResult:
+    """
+    Build the request body for one agent invocation using the schema fields.
+
+    Args:
+        schema_fields  — list of RequestSchemaField (from InvocationConfig.request_schema)
+        strict         — strip extra fields from LLM output
+        json_schema    — optional JSON Schema for additional post-validation
+        task           — planner-assigned task string
+        session_id     — orchestrator session
+        customer_id    — customer context
+        prior_outputs  — dict[step_id → result_text] from earlier steps
+        context_note   — optional planner note
+
+    Returns:
+        MappingResult with .body (the dict to POST) and .decisions for tracing
+
+    Raises:
+        SchemaMapError — if a required field is missing and has no default
+    """
     t_start = time.monotonic()
     result  = MappingResult(body={})
 
     if not schema_fields:
-        return result
+        return result   # no schema — caller falls back to body_template or defaults
 
     # Build context dict
     context: dict[str, Any] = {
@@ -240,13 +348,13 @@ async def build(
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user",   "content": user_msg},
                 ],
-                temperature=0.0,
+                temperature=0.0,   # deterministic — never hallucinate
                 max_completion_tokens=1000,
             )
             tokens_used += response.usage.total_tokens if response.usage else 0
             raw_text    = response.choices[0].message.content or "{}"
             raw_body    = json.loads(raw_text)
-            break
+            break   # success
 
         except json.JSONDecodeError as exc:
             if attempt == 0:

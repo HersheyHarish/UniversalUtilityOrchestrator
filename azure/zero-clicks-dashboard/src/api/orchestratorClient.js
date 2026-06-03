@@ -47,6 +47,21 @@ export const orchestratorApi = {
       body: JSON.stringify({ message, customer_id: customerId, session_id: sessionId }),
     }),
 
+  // Proactive trigger (goes to orchestrator planner -> executor pipeline with proactive trigger system prompt)
+  proactiveTrigger: (message, customerId, agentName, eventType, severity = "medium", context = {}) =>
+    req("/api/proactive/trigger", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        customer_id: customerId,
+        agent_name: agentName,
+        event_type: eventType,
+        severity,
+        context,
+        run_enrichment: true,
+      }),
+    }),
+
   // Streaming chat (SSE) — use orchestratorStream.streamChat from callers
   chatStreamUrl: () => "/api/chat/stream",
 
