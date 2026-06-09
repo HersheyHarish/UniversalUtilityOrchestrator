@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { orchestratorApi } from "../api/orchestratorClient";
+import { Bot, Mail, Sparkles, MapPin, Zap, AlertTriangle, ShieldCheck, Play, ArrowRight } from "lucide-react";
 import "../styles/reactiveEmail.css";
 
 export function ReactiveEmail() {
@@ -8,44 +9,136 @@ export function ReactiveEmail() {
   const [sessionInfo, setSessionInfo] = useState(null);
   const [emailDetails, setEmailDetails] = useState(null);
   const [planSteps, setPlanSteps] = useState([]);
-  const [activeTab, setActiveTab] = useState("all");
+  
+  // Custom states for animating stepper stages during backend execution
+  const [currentStepperIndex, setCurrentStepperIndex] = useState(0);
+
+  useEffect(() => {
+    let timer;
+    if (simulationState === "loading") {
+      // Simulate stepper progress every 1.5 seconds during execution
+      setCurrentStepperIndex(0);
+      const intervals = [1000, 2500, 4200, 5800];
+      
+      intervals.forEach((time, index) => {
+        timer = setTimeout(() => {
+          setCurrentStepperIndex(index + 1);
+        }, time);
+      });
+    }
+    return () => clearTimeout(timer);
+  }, [simulationState]);
 
   const runSimulation = async () => {
     setSimulationState("loading");
     setErrorMsg("");
     setEmailDetails(null);
     setPlanSteps([]);
+    setCurrentStepperIndex(0);
     
     try {
-      // Trigger simulation for CUST-1001
+      // Trigger simulation for CUST-1001 (James Doe)
       const res = await orchestratorApi.simulateOutage("CUST-1001");
       
-      // Parse steps and results
-      const steps = res.steps || {};
-      const plan = res.plan || {};
+      // Fetch the actual session trace from Cosmos DB via orchestrator api
+      let sessionData = null;
+      try {
+        sessionData = await orchestratorApi.session(res.session_id);
+      } catch (sessErr) {
+        console.warn("Could not fetch full session data, falling back", sessErr);
+      }
+
       const stepsList = [];
       let mockEmail = null;
 
-      // Extract details from plan steps and step outputs
-      Object.entries(steps).forEach(([stepId, stepData]) => {
-        stepsList.push({
-          id: stepId,
-          agent: stepData.agent || "Unknown Agent",
-          objective: stepData.objective || "Analysis",
-          status: stepData.status || "completed",
-          output: stepData.output || "",
-          error: stepData.error || ""
+      if (sessionData && sessionData.session && sessionData.session.plan) {
+        const planStepsData = sessionData.session.plan.steps || [];
+        const stepResults = sessionData.step_results || [];
+
+        planStepsData.forEach((step, idx) => {
+          const result = stepResults.find(r => r.step_id === step.step_id);
+          stepsList.push({
+            id: `step-${step.step_id}`,
+            agent: step.agent_name || "Unknown Agent",
+            objective: step.task || "Analysis",
+            status: result ? "completed" : "pending",
+            output: result ? result.content : "",
+            error: result && result.type === "step_error" ? result.content : ""
+          });
+
+          // Find email details from the email notification agent step
+          if (step.agent_name === "email_notification_agent" && result) {
+            if (result.metadata && result.metadata.body) {
+              mockEmail = {
+                recipient: result.metadata.recipient || "james.doe@example.com",
+                subject: result.metadata.subject || "⚠️ NexusGas Service Alert: Outage Detected & Action Plan",
+                body: result.metadata.body,
+                sent_at: result.metadata.sent_at || new Date().toISOString(),
+                status: "sent"
+              };
+            } else {
+              try {
+                if (typeof result.content === "string" && result.content.trim().startsWith("{")) {
+                  mockEmail = JSON.parse(result.content);
+                }
+              } catch (e) {
+                console.warn("Failed to parse email content", e);
+              }
+            }
+          }
         });
+      }
 
-        // Find email details from the email agent
-        if (stepData.agent === "email_notification_agent" && stepData.output) {
-          mockEmail = typeof stepData.output === "string" 
-            ? JSON.parse(stepData.output) 
-            : stepData.output;
+      // Fallback: parse steps from the direct simulateOutage response if stepsList is empty
+      if (stepsList.length === 0) {
+        const steps = res.steps_completed || res.steps || {};
+        if (res.steps_completed && Array.isArray(res.steps_completed)) {
+          res.steps_completed.forEach((step, idx) => {
+            stepsList.push({
+              id: `step-${idx}`,
+              agent: step.agent || "Unknown Agent",
+              objective: step.objective || "Analysis",
+              status: "completed",
+              output: step.output || "",
+            });
+          });
+        } else {
+          Object.entries(steps).forEach(([stepId, stepData]) => {
+            stepsList.push({
+              id: stepId,
+              agent: stepData.agent || "Unknown Agent",
+              objective: stepData.objective || "Analysis",
+              status: stepData.status || "completed",
+              output: stepData.output || "",
+              error: stepData.error || ""
+            });
+
+            if (stepData.agent === "email_notification_agent" && stepData.output) {
+              try {
+                mockEmail = typeof stepData.output === "string" 
+                  ? JSON.parse(stepData.output) 
+                  : stepData.output;
+              } catch (e) {
+                console.warn("Failed to parse email stepData output", e);
+              }
+            }
+          });
         }
-      });
+      }
 
-      // Fallback: If OpenAI didn't output email JSON but structured text was generated
+      // Extract agents used to find email if it's not nested
+      if (!mockEmail && res.agents_used && res.agents_used.includes("email_notification_agent")) {
+        // Find it in response text
+        mockEmail = {
+          recipient: "james.doe@example.com",
+          subject: "⚠️ NexusGas Service Alert: Outage Detected & Action Plan",
+          body: res.response || "Service Outage Warning.",
+          sent_at: new Date().toISOString(),
+          status: "sent"
+        };
+      }
+
+      // Fallback email generation
       if (!mockEmail && res.response) {
         mockEmail = {
           recipient: "james.doe@example.com",
@@ -68,247 +161,286 @@ export function ReactiveEmail() {
   };
 
   return (
-    <div className="reactive-email-container">
-      <div className="reactive-email-header">
+    <div className="reactive-email-container" style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 32px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
         <div>
-          <h1>Reactive Alerts Dashboard</h1>
-          <p className="subtitle">
-            Simulate automated proactive and reactive notifications generated by backend multi-agent workflows.
+          <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--text-primary)" }}>Reactive Alerts Dashboard</h1>
+          <p style={{ color: "var(--text-tertiary)", fontSize: 13, marginTop: 4 }}>
+            Simulate and trace automated email alerts triggered by outage events in real time.
           </p>
         </div>
         <button
           type="button"
-          className={`btn-simulate ${simulationState === "loading" ? "loading" : ""}`}
+          className="btn btn-primary"
+          style={{ gap: 8, padding: "12px 24px", borderRadius: "var(--radius-md)" }}
           onClick={runSimulation}
           disabled={simulationState === "loading"}
         >
           {simulationState === "loading" ? (
             <>
-              <span className="spinner-small"></span>
-              Simulating Outage...
+              <span className="topbar-proactive-spinner" />
+              Executing Outage Workflow...
             </>
           ) : (
-            "⚡ Simulate Outage (CUST-1001)"
+            <>
+              <Play size={16} />
+              Simulate Outage (CUST-1001)
+            </>
           )}
         </button>
       </div>
 
       {simulationState === "failed" && (
-        <div className="simulation-alert error">
-          <strong>Simulation Interrupted:</strong> {errorMsg}
+        <div style={{ padding: "14px 20px", background: "var(--status-danger-bg)", color: "var(--status-danger)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "var(--radius-md)", marginBottom: 20, display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+          <AlertTriangle size={16} />
+          <span><strong>Simulation Failed:</strong> {errorMsg}</span>
         </div>
       )}
 
-      <div className="reactive-email-grid">
-        {/* LEFT COLUMN: Map & Agent Execution Trace */}
-        <div className="reactive-column">
+      {/* Grid Layout */}
+      <div className="reactive-email-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+        
+        {/* Left Column: Map and Stepper Trace */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           
           {/* Map Card */}
-          <div className="dashboard-card map-card">
-            <div className="card-header-clean">
-              <h3>📍 Service Outage Map</h3>
-              <span className="badge-area">Austin (78712)</span>
+          <div className="card" style={{ padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div className="card-title">
+                <MapPin size={16} style={{ color: "var(--brand-orange)" }} />
+                Austin Grid Outage Monitor
+              </div>
+              <span className="pill info" style={{ padding: "2px 8px" }}>Zone 78712</span>
             </div>
-            
-            <div className="map-view-wrapper">
-              <svg className="austin-grid-map" viewBox="0 0 500 350">
-                {/* Background grid representing city blocks */}
-                <path d="M 0,50 L 500,50 M 0,100 L 500,100 M 0,150 L 500,150 M 0,200 L 500,200 M 0,250 L 500,250 M 0,300 L 500,300" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
-                <path d="M 50,0 L 50,350 M 100,0 L 100,350 M 150,0 L 150,350 M 200,0 L 200,350 M 250,0 L 250,350 M 300,0 L 300,350 M 350,0 L 350,350 M 400,0 L 400,350 M 450,0 L 450,350" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
+
+            <div className="map-view-wrapper" style={{ border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", overflow: "hidden", background: "#0f172a" }}>
+              <svg viewBox="0 0 500 320" style={{ width: "100%", height: "auto" }}>
+                {/* City grid layout */}
+                <path d="M 0,40 L 500,40 M 0,80 L 500,80 M 0,120 L 500,120 M 0,160 L 500,160 M 0,200 L 500,200 M 0,240 L 500,240 M 0,280 L 500,280" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
+                <path d="M 50,0 L 50,320 M 100,0 L 100,320 M 150,0 L 150,320 M 200,0 L 200,320 M 250,0 L 250,320 M 300,0 L 300,320 M 350,0 L 350,320 M 400,0 L 400,320 M 450,0 L 450,320" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
                 
-                {/* Stylized major roads/intersections */}
-                <path d="M 50,0 Q 150,150 250,350" stroke="rgba(255,255,255,0.06)" strokeWidth="4" fill="none" />
-                <path d="M 0,180 L 500,180" stroke="rgba(255,255,255,0.06)" strokeWidth="4" fill="none" />
-                <path d="M 380,0 Q 300,150 420,350" stroke="rgba(255,255,255,0.06)" strokeWidth="3" fill="none" />
+                {/* Highway paths */}
+                <path d="M 60,0 Q 180,140 260,320" stroke="rgba(255,255,255,0.05)" strokeWidth="3" fill="none" />
+                <path d="M 0,150 L 500,150" stroke="rgba(255,255,255,0.05)" strokeWidth="3" fill="none" />
+
+                {/* Map labels */}
+                <text x="360" y="30" fill="rgba(255,255,255,0.15)" fontSize="10" fontWeight="bold" fontFamily="sans-serif">N. AUSTIN SUBGRID</text>
                 
-                {/* Labels for service region */}
-                <text x="35" y="165" fill="rgba(255,255,255,0.3)" fontSize="10" fontFamily="sans-serif">I-35 Highway</text>
-                <text x="350" y="30" fill="rgba(255,255,255,0.2)" fontSize="11" fontWeight="bold">NORTH AUSTIN</text>
-                <text x="60" y="320" fill="rgba(255,255,255,0.2)" fontSize="11" fontWeight="bold">DOWNTOWN</text>
-                
-                {/* Outage area representation */}
-                {simulationState === "completed" || simulationState === "loading" ? (
+                {/* Outage State Display */}
+                {simulationState === "loading" || simulationState === "completed" ? (
                   <>
-                    {/* Glowing Red Outage Radius */}
-                    <circle cx="260" cy="180" r="100" className="outage-overlay-pulse" />
-                    <circle cx="260" cy="180" r="100" fill="url(#outageGradient)" opacity="0.4" />
-                    
-                    {/* Outage boundary outline */}
-                    <circle cx="260" cy="180" r="100" stroke="#EF4444" strokeWidth="1.5" strokeDasharray="6,4" fill="none" opacity="0.6" />
-                    
-                    {/* Outage Center / Substation */}
-                    <circle cx="260" cy="180" r="5" fill="#EF4444" />
-                    <text x="270" y="184" fill="#EF4444" fontSize="10" fontWeight="bold" fontFamily="sans-serif">Substation 78712</text>
-                    
-                    {/* Customer Node */}
-                    <g transform="translate(220, 160)">
+                    {/* Glowing outer outage ring */}
+                    <circle cx="260" cy="160" r="80" className="outage-overlay-pulse" />
+                    <circle cx="260" cy="160" r="80" fill="url(#outageGrad)" opacity="0.3" />
+
+                    {/* Substation Center */}
+                    <circle cx="260" cy="160" r="6" fill="var(--status-danger)" />
+                    <text x="272" y="164" fill="var(--status-danger)" fontSize="9" fontWeight="bold" fontFamily="sans-serif">Substation 78712 (offline)</text>
+
+                    {/* Affected Customer Location */}
+                    <g transform="translate(210, 130)">
                       <circle cx="0" cy="0" r="8" className="customer-node-pulse" />
-                      <circle cx="0" cy="0" r="5" fill="#0A84FF" />
-                      <text x="12" y="4" fill="#E2E8F0" fontSize="10" fontWeight="bold" fontFamily="sans-serif">CUST-1001 (James Doe)</text>
+                      <circle cx="0" cy="0" r="4" fill="var(--brand-blue)" />
+                      <text x="10" y="3" fill="#fff" fontSize="9" fontWeight="bold" fontFamily="sans-serif">CUST-1001</text>
                     </g>
                   </>
                 ) : (
                   <>
-                    {/* Normal/Healthy Map State */}
-                    <g transform="translate(220, 160)">
-                      <circle cx="0" cy="0" r="5" fill="#10B981" />
-                      <text x="10" y="4" fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="sans-serif">CUST-1001 (Healthy)</text>
+                    {/* Normal State */}
+                    <g transform="translate(210, 130)">
+                      <circle cx="0" cy="0" r="4" fill="var(--status-success)" />
+                      <text x="10" y="3" fill="rgba(255,255,255,0.4)" fontSize="9" fontFamily="sans-serif">CUST-1001 (online)</text>
                     </g>
-                    <text x="180" y="180" fill="rgba(255,255,255,0.25)" fontSize="13" fontFamily="sans-serif">No Active Outages Simulated</text>
+                    <text x="180" y="165" fill="rgba(255,255,255,0.2)" fontSize="12" fontFamily="sans-serif">Grid operates normally</text>
                   </>
                 )}
 
-                {/* SVG Gradients */}
                 <defs>
-                  <radialGradient id="outageGradient" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#EF4444" stopOpacity="0.8" />
-                    <stop offset="60%" stopColor="#EF4444" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="#EF4444" stopOpacity="0" />
+                  <radialGradient id="outageGrad" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="#ef4444" stopOpacity="0.8" />
+                    <stop offset="70%" stopColor="#ef4444" stopOpacity="0.2" />
+                    <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
                   </radialGradient>
                 </defs>
               </svg>
             </div>
-            
-            <div className="map-legend">
-              <div className="legend-item">
-                <span className="legend-dot healthy"></span>
-                <span>Active Grid</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-dot affected"></span>
-                <span>Outage Zone (78712)</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-dot customer"></span>
-                <span>Customer Address</span>
-              </div>
-            </div>
           </div>
 
-          {/* Orchestration Pipeline Details */}
-          <div className="dashboard-card pipeline-card">
-            <div className="card-header-clean">
-              <h3>🤖 Orchestration Pipeline Trace</h3>
-              {sessionInfo && (
-                <span className="session-tag">Session: {sessionInfo.session_id.slice(0, 8)}</span>
-              )}
+          {/* Stepper Timeline card */}
+          <div className="card" style={{ padding: 20 }}>
+            <div className="card-header" style={{ marginBottom: 16 }}>
+              <div className="card-title">
+                <Bot size={16} style={{ color: "var(--brand-blue)" }} />
+                Orchestration Pipeline Trace
+              </div>
             </div>
-            
-            <div className="pipeline-steps-wrapper">
-              {simulationState === "idle" && (
-                <div className="empty-state-placeholder">
-                  Click the simulation button to trigger a multi-agent plan execution.
-                </div>
-              )}
 
-              {simulationState === "loading" && (
-                <div className="pipeline-loading-steps">
-                  <div className="loading-step-item">
-                    <span className="pulse-loader"></span>
-                    <span>Hub Planner generating dependency graph...</span>
+            {simulationState === "idle" && (
+              <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-tertiary)", fontSize: 13 }}>
+                Click the simulation button to execute the reactive agent workflow.
+              </div>
+            )}
+
+            {/* Simulated Live Stepper (Loading State) */}
+            {simulationState === "loading" && (
+              <div className="execution-stepper">
+                <div className={`stepper-item ${currentStepperIndex >= 1 ? (currentStepperIndex === 1 ? "active" : "completed") : ""}`}>
+                  <div className="stepper-dot" />
+                  <div className="stepper-content">
+                    <span className="stepper-title">Stage 1: Hub Planner Initialization</span>
+                    <span className="stepper-desc">Building execution plan to check grid disruption status.</span>
+                    {currentStepperIndex === 1 && <span className="stepper-badge" style={{ color: "var(--brand-blue)" }}>running</span>}
                   </div>
-                  <div className="loading-step-item-sub">
-                    Analyzing active outage registers & weather alert services.
+                </div>
+
+                <div className={`stepper-item ${currentStepperIndex >= 2 ? (currentStepperIndex === 2 ? "active" : "completed") : ""}`}>
+                  <div className="stepper-dot" />
+                  <div className="stepper-content">
+                    <span className="stepper-title">Stage 2: Outage Detection Agent</span>
+                    <span className="stepper-desc">Querying regional outage database for Zip 78712.</span>
+                    {currentStepperIndex === 2 && <span className="stepper-badge" style={{ color: "var(--brand-blue)" }}>running</span>}
                   </div>
                 </div>
-              )}
 
-              {simulationState === "completed" && planSteps.length > 0 && (
-                <div className="pipeline-steps-list">
-                  {planSteps.map((step, index) => {
-                    const isOutage = step.agent === "outage_detection_agent";
-                    const isWeather = step.agent === "weather_context_agent";
-                    const isEmail = step.agent === "email_notification_agent";
-                    
-                    let agentIcon = "⚙️";
-                    let agentColor = "var(--text-tertiary)";
-                    if (isOutage) { agentIcon = "⚠️"; agentColor = "#EF4444"; }
-                    else if (isWeather) { agentIcon = "🌡️"; agentColor = "#3B82F6"; }
-                    else if (isEmail) { agentIcon = "📧"; agentColor = "#10B981"; }
+                <div className={`stepper-item ${currentStepperIndex >= 3 ? (currentStepperIndex === 3 ? "active" : "completed") : ""}`}>
+                  <div className="stepper-dot" />
+                  <div className="stepper-content">
+                    <span className="stepper-title">Stage 3: Weather Context Agent</span>
+                    <span className="stepper-desc">Fetching environmental weather logs to evaluate severity drivers.</span>
+                    {currentStepperIndex === 3 && <span className="stepper-badge" style={{ color: "var(--brand-blue)" }}>running</span>}
+                  </div>
+                </div>
 
-                    return (
-                      <div className="pipeline-step-item-complete" key={step.id}>
-                        <div className="step-header-row">
-                          <div className="step-number">Step {index + 1}</div>
-                          <div className="step-agent-badge" style={{ borderColor: agentColor, color: agentColor }}>
-                            <span style={{ marginRight: 4 }}>{agentIcon}</span>
-                            {step.agent.replace(/_/g, " ")}
-                          </div>
-                        </div>
-                        <div className="step-objective"><strong>Objective:</strong> {step.objective}</div>
-                        <div className="step-output-box">
-                          {typeof step.output === "object" ? (
-                            <pre className="step-output-json">{JSON.stringify(step.output, null, 2)}</pre>
-                          ) : (
-                            <p className="step-output-text">{step.output}</p>
-                          )}
-                        </div>
+                <div className={`stepper-item ${currentStepperIndex >= 4 ? (currentStepperIndex === 4 ? "active" : "completed") : ""}`}>
+                  <div className="stepper-dot" />
+                  <div className="stepper-content">
+                    <span className="stepper-title">Stage 4: Email Notification Agent</span>
+                    <span className="stepper-desc">Drafting and formatting personalized utility email notification.</span>
+                    {currentStepperIndex === 4 && <span className="stepper-badge" style={{ color: "var(--brand-blue)" }}>running</span>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Stepper Completed State */}
+            {simulationState === "completed" && (
+              <div className="execution-stepper">
+                <div className="stepper-item completed">
+                  <div className="stepper-dot" />
+                  <div className="stepper-content">
+                    <span className="stepper-title">Stage 1: Hub Planner Plan Formulated</span>
+                    <span className="stepper-desc">DAG creator established dependency pipeline successfully.</span>
+                    <span className="stepper-badge" style={{ color: "var(--status-success)" }}>done</span>
+                  </div>
+                </div>
+
+                {planSteps.map((step, idx) => {
+                  let agentLabel = step.agent.replace(/_/g, " ").replace(/agent/i, "").trim();
+                  let emoji = "⚙️";
+                  if (step.agent.includes("outage")) emoji = "⚠️";
+                  if (step.agent.includes("weather")) emoji = "🌡️";
+                  if (step.agent.includes("email")) emoji = "📧";
+
+                  return (
+                    <div className="stepper-item completed" key={step.id}>
+                      <div className="stepper-dot" />
+                      <div className="stepper-content">
+                        <span className="stepper-title">Stage {idx + 2}: {agentLabel} Executed</span>
+                        <span className="stepper-desc"><strong>Objective:</strong> {step.objective}</span>
+                        <span className="stepper-badge" style={{ color: "var(--status-success)" }}>
+                          {emoji} resolved
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Simulated Email Inbox */}
-        <div className="reactive-column">
-          <div className="dashboard-card inbox-card">
-            <div className="card-header-clean">
-              <h3>📧 Customer Notification Email</h3>
-              {emailDetails && (
-                <span className="badge-sent">
-                  <span className="badge-dot-green"></span> Sent
-                </span>
-              )}
+        {/* Right Column: Simulated Mail Inbox */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          
+          <div className="card" style={{ padding: 20, flex: 1, display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div className="card-title">
+                <Mail size={16} style={{ color: "var(--brand-blue)" }} />
+                Customer Notification Inbox
+              </div>
             </div>
 
+            {/* Premium Inbox Screen */}
             <div className="email-client-container">
+              
+              {/* Client Window Titlebar */}
+              <div className="email-inbox-header">
+                <div className="email-window-controls">
+                  <span className="window-dot close"></span>
+                  <span className="window-dot minimize"></span>
+                  <span className="window-dot maximize"></span>
+                </div>
+                <div className="email-client-title">Inbox Client v1.2</div>
+                <div style={{ width: 44 }}></div>
+              </div>
+
               {!emailDetails ? (
-                <div className="inbox-empty-state">
-                  <div className="inbox-icon">📬</div>
-                  <h4>No New Notifications</h4>
-                  <p>Trigger the outage simulation to generate and dispatch the reactive safety alert email.</p>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>📬</div>
+                  <h4 style={{ color: "#f8fafc", fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Awaiting Safety Alert</h4>
+                  <p style={{ color: "#94a3b8", fontSize: 12 }}>
+                    Trigger the outage simulation to build and push the live reactive email draft.
+                  </p>
                 </div>
               ) : (
                 <div className="email-message-wrapper">
+                  
+                  {/* Sender, Subject Metadata */}
                   <div className="email-metadata-block">
-                    <div className="metadata-row">
-                      <span className="meta-label">From:</span>
-                      <span className="meta-value"><strong>NexusGas Support Operations</strong> &lt;alerts@nexusgas.com&gt;</span>
+                    <div className="email-avatar-row">
+                      <div className="email-sender-avatar">NG</div>
+                      <div className="email-meta-info">
+                        <div style={{ display: "flex", alignItems: "center" }}>
+                          <span className="email-sender-name">NexusGas Utility Operations</span>
+                          <span className="email-badge-ai">Drafted by AI</span>
+                        </div>
+                        <span className="email-recipients">To: james.doe@example.com</span>
+                      </div>
+                      <div style={{ marginLeft: "auto", fontSize: 11, color: "#64748b" }}>
+                        {new Date(emailDetails.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     </div>
-                    <div className="metadata-row">
-                      <span className="meta-label">To:</span>
-                      <span className="meta-value"><strong>James Doe</strong> &lt;{emailDetails.recipient}&gt;</span>
-                    </div>
-                    <div className="metadata-row">
-                      <span className="meta-label">Date:</span>
-                      <span className="meta-value">{new Date(emailDetails.sent_at).toLocaleString()}</span>
-                    </div>
-                    <div className="metadata-row">
-                      <span className="meta-label">Subject:</span>
-                      <span className="meta-value-subject">{emailDetails.subject}</span>
-                    </div>
+                    <div className="email-subject-row">{emailDetails.subject}</div>
                   </div>
 
-                  <div className="email-body-content">
-                    {/* Render plain text with clean formatting */}
+                  {/* Body Scroll Area */}
+                  <div className="email-body-scroll">
                     {emailDetails.body.split("\n").map((line, idx) => {
-                      if (line.startsWith("🔌") || line.startsWith("🌡️") || line.startsWith("📋")) {
-                        return <h4 className="email-section-heading" key={idx}>{line}</h4>;
+                      const trimmed = line.trim();
+                      if (!trimmed) return <div key={idx} style={{ height: 12 }}></div>;
+                      
+                      if (trimmed.startsWith("🔌") || trimmed.startsWith("🌡️") || trimmed.startsWith("📋") || trimmed.startsWith("Dear") || trimmed.startsWith("NexusGas")) {
+                        if (trimmed.startsWith("🔌") || trimmed.startsWith("🌡️") || trimmed.startsWith("📋")) {
+                          return <div className="email-section-heading" key={idx}>{trimmed}</div>;
+                        }
+                        return <p key={idx} style={{ fontWeight: 600, color: "#f1f5f9" }}>{trimmed}</p>;
                       }
-                      if (line.startsWith("•") || line.startsWith("1.") || line.startsWith("2.") || line.startsWith("3.")) {
-                        return <p className="email-list-line" key={idx}>{line}</p>;
+                      
+                      if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
+                        return <div className="email-list-line" key={idx}>{trimmed}</div>;
                       }
-                      return <p className="email-body-line" key={idx}>{line}</p>;
+                      
+                      return <p key={idx}>{trimmed}</p>;
                     })}
                   </div>
+
                 </div>
               )}
             </div>
           </div>
         </div>
+
       </div>
     </div>
   );

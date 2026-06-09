@@ -487,7 +487,13 @@ async def email_agent(req: func.HttpRequest) -> func.HttpResponse:
         "recipient": "james.doe@example.com" if customer_id == "CUST-1001" else "customer@example.com",
         "subject": subject,
         "body": email_body,
-        "sent_at": datetime.now(timezone.utc).isoformat()
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+        "metadata": {
+            "recipient": "james.doe@example.com" if customer_id == "CUST-1001" else "customer@example.com",
+            "subject": subject,
+            "body": email_body,
+            "sent_at": datetime.now(timezone.utc).isoformat()
+        }
     }
     return _ok(response_payload)
 

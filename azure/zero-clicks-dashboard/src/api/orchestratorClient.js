@@ -68,6 +68,9 @@ export const orchestratorApi = {
   // Session history
   session: (sessionId) => req(`/api/sessions/${encodeURIComponent(sessionId)}`),
 
+  // Active agents list
+  agents: () => req("/api/agents"),
+
   // Outage simulation trigger
   simulateOutage: (customerId) =>
     req("/api/simulate-outage", {

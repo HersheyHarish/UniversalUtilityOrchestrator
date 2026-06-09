@@ -21,6 +21,7 @@ export default function App() {
         onProactiveTrigger={dashboardProps.triggerProactiveNotification}
         proactiveLoading={dashboardProps.proactiveLoading}
         hasUnreadProactive={dashboardProps.hasUnreadProactive}
+        activeAgents={dashboardProps.activeAgents}
       />
 
       <ProactiveToast

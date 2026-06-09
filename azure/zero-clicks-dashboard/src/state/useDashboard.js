@@ -3,18 +3,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { orchestratorApi } from "../api/orchestratorClient";
-import { mapAgentMeta, truncateFeedMessage } from "../constants/proactiveAgents";
+import { mapAgentMeta, truncateFeedMessage, PROACTIVE_ROSTER } from "../constants/proactiveAgents";
 
 const CUSTOMER_ID = "CUST-1001";
 const SINCE_HOURS = 168;
-const BACKGROUND_JOB_INTERVAL = 30000;
-
-const BACKGROUND_PROMPTS = [
-  "Ask the outage detection agent whether customer CUST-1001 had any service disruptions recently. Do not review billing.",
-  "Ask the anomaly detection agent to check customer CUST-1001 for unusual usage spikes in the last billing period. Do not review billing.",
-  "Ask the solar performance agent to check whether customer CUST-1001 solar production is underperforming. Do not review billing.",
-  "Ask the bill shock forecast agent whether customer CUST-1001 is on track for an unusually high bill this cycle. Do not review past invoices or payment history.",
-];
 
 const PROACTIVE_BUTTON_PROMPT =
   "Run a proactive check for customer CUST-1001 using outage detection and anomaly detection agents only. Summarize any advisories. Do not use the billing agent or review payment details.";
@@ -51,7 +43,7 @@ export function useDashboard() {
     { month: "May", therms: 42, prev: 49 },
   ]);
 
-  const [agentEvents, setAgentEvents] = useState([]);
+  const [activeAgents, setActiveAgents] = useState([]);
   const [realAlerts, setRealAlerts] = useState([]);
   const [insights, setInsights] = useState([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
@@ -75,10 +67,15 @@ export function useDashboard() {
   const [chatLoading, setChatLoading] = useState(false);
   const [sessionId, setSessionId] = useState(null);
 
-  const bgTimerRef = useRef(null);
-  const promptIndexRef = useRef(0);
+  const [activeTrace, setActiveTrace] = useState({
+    status: "idle",
+    triggerType: null,
+    steps: []
+  });
+
   const billExplanationFetchedRef = useRef(false);
   const toastTimerRef = useRef(null);
+  const traceTimerRef = useRef(null);
 
   const showToast = useCallback((toast) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -95,6 +92,94 @@ export function useDashboard() {
     setHasUnreadProactive(false);
   }, []);
 
+  const runSimulatedTrace = useCallback((triggerType, triggeringAgent = null) => {
+    if (traceTimerRef.current) clearInterval(traceTimerRef.current);
+    
+    const steps = [
+      { stage: "guardrails", message: "Validating input request and security policy...", status: "completed" },
+      { stage: "planning", message: triggeringAgent 
+        ? `LLM Planner: Triggered by ${triggeringAgent.replace(/_/g, " ")}. Planning DAG...`
+        : "LLM Planner: Building execution plan DAG...", status: "running" },
+      { stage: "execution", message: "Awaiting execution DAG...", status: "pending" },
+      { stage: "synthesis", message: "Synthesizing final response...", status: "pending" }
+    ];
+
+    setActiveTrace({
+      status: "running",
+      triggerType,
+      steps
+    });
+
+    let currentStep = 0;
+    traceTimerRef.current = setInterval(() => {
+      currentStep += 1;
+      if (currentStep === 1) {
+        setActiveTrace(prev => ({
+          ...prev,
+          steps: [
+            { stage: "guardrails", message: "Validating input request and security policy...", status: "completed" },
+            { stage: "planning", message: "LLM Planner: Built execution plan with 2 steps.", status: "completed" },
+            { stage: "execution", message: triggerType === "proactive" 
+              ? "Running anomaly_detection_agent..." 
+              : "Running billing_agent...", status: "running" },
+            { stage: "synthesis", message: "Synthesizing final response...", status: "pending" }
+          ]
+        }));
+      } else if (currentStep === 2) {
+        setActiveTrace(prev => ({
+          ...prev,
+          steps: [
+            { stage: "guardrails", message: "Validating input request and security policy...", status: "completed" },
+            { stage: "planning", message: "LLM Planner: Built execution plan with 2 steps.", status: "completed" },
+            { stage: "execution", message: triggerType === "proactive" 
+              ? "Running solar_performance_credit_loss_agent..." 
+              : "Running customer_lookup_agent...", status: "running" },
+            { stage: "synthesis", message: "Synthesizing final response...", status: "pending" }
+          ]
+        }));
+      } else if (currentStep === 3) {
+        setActiveTrace(prev => ({
+          ...prev,
+          steps: [
+            { stage: "guardrails", message: "Validating input request and security policy...", status: "completed" },
+            { stage: "planning", message: "LLM Planner: Built execution plan with 2 steps.", status: "completed" },
+            { stage: "execution", message: "Graph execution complete.", status: "completed" },
+            { stage: "synthesis", message: "Synthesizing agent responses with GPT-4o...", status: "running" }
+          ]
+        }));
+        clearInterval(traceTimerRef.current);
+      }
+    }, 2000);
+  }, []);
+
+  const finishTrace = useCallback((res, status = "completed") => {
+    if (traceTimerRef.current) clearInterval(traceTimerRef.current);
+    const agents = res.agents_used || [];
+    setActiveTrace(prev => ({
+      ...prev,
+      status,
+      steps: [
+        { stage: "guardrails", message: "Input validation passed.", status: "completed" },
+        { stage: "planning", message: `LLM Planner: Planned ${agents.length} agent steps.`, status: "completed" },
+        { stage: "execution", message: `Executed: ${agents.join(", ") || "orchestrator"}.`, status: "completed" },
+        { stage: "synthesis", message: "Response successfully synthesized.", status: "completed" }
+      ]
+    }));
+  }, []);
+
+  const failTrace = useCallback((err) => {
+    if (traceTimerRef.current) clearInterval(traceTimerRef.current);
+    setActiveTrace(prev => ({
+      ...prev,
+      status: "failed",
+      steps: [
+        { stage: "guardrails", message: "Input validation passed.", status: "completed" },
+        { stage: "planning", message: "LLM Planner failed or aborted.", status: "failed" },
+        { stage: "error", message: err.message || "Execution failed.", status: "failed" }
+      ]
+    }));
+  }, []);
+
   const checkOrchHealth = useCallback(async () => {
     try {
       await orchestratorApi.health();
@@ -107,12 +192,26 @@ export function useDashboard() {
   const loadRealData = useCallback(async () => {
     setInsightsLoading(true);
     try {
-      const [insData, alertData] = await Promise.all([
+      const [insData, alertData, agentsData] = await Promise.all([
         orchestratorApi.insights(CUSTOMER_ID, SINCE_HOURS).catch(() => ({ insights: [] })),
         orchestratorApi.alerts(CUSTOMER_ID, "all").catch(() => ({ alerts: [] })),
+        orchestratorApi.agents().catch(() => ({ agents: [] })),
       ]);
       setInsights(insData.insights || []);
       setRealAlerts(alertData.alerts || []);
+      const fetchedAgents = agentsData.agents || [];
+      if (fetchedAgents.length > 0) {
+        setActiveAgents(fetchedAgents);
+      } else {
+        const fallback = [
+          { name: "billing_agent", description: "Explains billing charges using RAG-based policy retrieval and structured billing facts." },
+          { name: "anomaly_detection_agent", description: "Detects usage anomalies for demo households over a requested billing window." },
+          { name: "customer_lookup_agent", description: "Returns comprehensive customer account profiles, including current plan details." },
+          { name: "solar_performance_credit_loss_agent", description: "Monitors solar production against baselines and identifies underperformance." },
+          { name: "bill_shock_forecast_agent", description: "Mid-cycle bill forecaster that projects end-of-cycle charges and flags anomalies." }
+        ];
+        setActiveAgents(fallback);
+      }
     } catch {
       // non-fatal
     } finally {
@@ -120,96 +219,58 @@ export function useDashboard() {
     }
   }, []);
 
-  const appendAgentEvent = useCallback((res, source = "proactive") => {
-    const primaryAgent = res.agents_used?.length > 0 ? res.agents_used[0] : "orchestrator";
-    const meta = mapAgentMeta(primaryAgent);
-    const newEvent = {
-      id: `orch-${Date.now()}`,
-      agentId: meta.id,
-      agentName: meta.name,
-      agentIcon: meta.icon,
-      agentColor: meta.color,
-      message: truncateFeedMessage(res.response),
-      timestamp: new Date().toISOString(),
-      source,
-      actions: [],
-    };
-    setAgentEvents((prev) => [newEvent, ...prev].slice(0, 30));
-    return newEvent;
-  }, []);
 
-  const triggerBackgroundOrchestrator = useCallback(async () => {
-    const index = promptIndexRef.current % BACKGROUND_PROMPTS.length;
-    const prompt = BACKGROUND_PROMPTS[index];
-    promptIndexRef.current += 1;
-
-    const agentMapping = [
-      { agent: "outage_detection_agent", event: "service_disruption_check" },
-      { agent: "anomaly_detection_agent", event: "usage_anomaly_check" },
-      { agent: "solar_performance_credit_loss_agent", event: "solar_performance_check" },
-      { agent: "bill_shock_forecast_agent", event: "bill_shock_check" },
-    ];
-    const mapping = agentMapping[index];
-
-    try {
-      const res = await orchestratorApi.proactiveTrigger(
-        prompt,
-        CUSTOMER_ID,
-        mapping.agent,
-        mapping.event,
-        "medium"
-      );
-      appendAgentEvent(res, "proactive");
-    } catch (e) {
-      console.warn("Background orchestrator job failed:", e);
-    }
-  }, [appendAgentEvent]);
-
-  const startBackgroundJobs = useCallback(() => {
-    triggerBackgroundOrchestrator();
-    bgTimerRef.current = setInterval(() => {
-      triggerBackgroundOrchestrator();
-    }, BACKGROUND_JOB_INTERVAL);
-  }, [triggerBackgroundOrchestrator]);
 
   const fetchBillExplanation = useCallback(async () => {
     setBillExplanationLoading(true);
     setBillExplanationError(null);
+    runSimulatedTrace("explanation");
     try {
       const prompt = buildBillExplanationPrompt(billing);
       const res = await orchestratorApi.chat(prompt, CUSTOMER_ID);
       setBillExplanation(res.response || "No explanation available.");
       setBillExplanationAgents(res.agents_used || []);
+      finishTrace(res);
     } catch (err) {
       setBillExplanationError(err.message || "Could not load bill explanation.");
       setBillExplanation(null);
+      failTrace(err);
     } finally {
       setBillExplanationLoading(false);
     }
-  }, [billing]);
+  }, [billing, runSimulatedTrace, finishTrace, failTrace]);
 
-  const triggerProactiveNotification = useCallback(async () => {
+  const triggerProactiveNotification = useCallback(async (scenario = null) => {
     if (proactiveLoading) return;
+
+    const selectedScenario = scenario || {
+      agentName: "anomaly_detection_agent",
+      eventType: "usage_anomaly_detected",
+      message: "Critical: Anomaly detected on account CUST-1001. Smart meter registered a 3.4x spike in consumption relative to the 30-day baseline.",
+      severity: "high"
+    };
+
     setProactiveLoading(true);
     setHasUnreadProactive(false);
+    runSimulatedTrace("proactive", selectedScenario.agentName);
     try {
       const res = await orchestratorApi.proactiveTrigger(
-        PROACTIVE_BUTTON_PROMPT,
+        selectedScenario.message,
         CUSTOMER_ID,
-        "orchestrator",
-        "proactive_check",
-        "medium"
+        selectedScenario.agentName,
+        selectedScenario.eventType,
+        selectedScenario.severity
       );
-      appendAgentEvent(res, "proactive");
       const agentLabel = res.agents_used?.length
         ? res.agents_used.map((a) => a.replace(/_/g, " ")).join(", ")
         : "Orchestrator";
       showToast({
         id: `toast-${Date.now()}`,
-        title: "Proactive update",
-        body: res.response || "Your account was checked successfully.",
+        title: `Proactive Alert: ${selectedScenario.agentName.replace(/_/g, " ").replace(/\bagent\b/gi, "")}`,
+        body: res.response || "Your account alert was checked successfully.",
         agents: agentLabel,
       });
+      finishTrace(res);
     } catch (err) {
       showToast({
         id: `toast-err-${Date.now()}`,
@@ -217,10 +278,11 @@ export function useDashboard() {
         body: err.message || "Could not reach the orchestrator.",
         agents: null,
       });
+      failTrace(err);
     } finally {
       setProactiveLoading(false);
     }
-  }, [proactiveLoading, appendAgentEvent, showToast]);
+  }, [proactiveLoading, showToast, runSimulatedTrace, finishTrace, failTrace]);
 
   const ackAlert = useCallback(async (alertId, action) => {
     try {
@@ -239,6 +301,7 @@ export function useDashboard() {
     setChatInput("");
     setChatLoading(true);
     setChatMessages((prev) => [...prev.filter((m) => m.role !== "thinking"), { role: "thinking" }]);
+    runSimulatedTrace("copilot");
 
     try {
       const res = await orchestratorApi.chat(message, CUSTOMER_ID, sessionId);
@@ -255,6 +318,7 @@ export function useDashboard() {
             metadata: { agents: res.agents_used, steps: res.steps_completed },
           })
       );
+      finishTrace(res);
     } catch (err) {
       setChatMessages((prev) =>
         prev
@@ -264,23 +328,23 @@ export function useDashboard() {
             content: `I encountered an issue connecting to the orchestrator: ${err.message}. Please try again.`,
           })
       );
+      failTrace(err);
     } finally {
       setChatLoading(false);
     }
-  }, [chatLoading, sessionId]);
+  }, [chatLoading, sessionId, runSimulatedTrace, finishTrace, failTrace]);
 
   useEffect(() => {
     checkOrchHealth();
     loadRealData();
-    startBackgroundJobs();
 
     const healthInterval = setInterval(checkOrchHealth, 30000);
     return () => {
-      clearInterval(bgTimerRef.current);
       clearInterval(healthInterval);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (traceTimerRef.current) clearInterval(traceTimerRef.current);
     };
-  }, [checkOrchHealth, loadRealData, startBackgroundJobs]);
+  }, [checkOrchHealth, loadRealData]);
 
   useEffect(() => {
     if (orchStatus === "connected" && !billExplanationFetchedRef.current) {
@@ -294,7 +358,6 @@ export function useDashboard() {
     orchStatus,
     billing,
     usageData,
-    agentEvents,
     realAlerts,
     insights,
     insightsLoading,
@@ -314,5 +377,7 @@ export function useDashboard() {
     chatLoading,
     sendChat,
     ackAlert,
+    activeAgents,
+    activeTrace,
   };
 }
