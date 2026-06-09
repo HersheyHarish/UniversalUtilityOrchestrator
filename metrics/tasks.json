@@ -1,0 +1,881 @@
+{
+  "_meta": {
+    "description": "30 utility-support evaluation tasks across 6 categories. Tasks are constrained to CUST-1001/CUST-1002 and July 2019, where the demo dataset is densest. Three tasks per category form a paraphrase group (suffix _a/_b/_c) testing robustness to rephrasing.",
+    "categories": [
+      "billing",
+      "anomaly",
+      "outage",
+      "weather",
+      "solar",
+      "payment_risk"
+    ],
+    "demo_window": "2019-07-01 to 2019-07-31",
+    "supported_customers": [
+      "CUST-1001",
+      "CUST-1002"
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "billing_01_a",
+      "category": "billing",
+      "paraphrase_group": "high_bill_july_1001",
+      "query": "Why was CUST-1001 charged so much for July 2019?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "summer peak",
+        "overage",
+        "$"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "billing_agent"
+      ],
+      "required_agents": [
+        "billing_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "billing_01_b",
+      "category": "billing",
+      "paraphrase_group": "high_bill_july_1001",
+      "query": "My July 2019 bill spiked \u2014 what happened?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "summer peak",
+        "overage",
+        "$"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "billing_agent"
+      ],
+      "required_agents": [
+        "billing_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "billing_01_c",
+      "category": "billing",
+      "paraphrase_group": "high_bill_july_1001",
+      "query": "Can you explain the charges on my July 2019 statement for CUST-1001?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "summer peak",
+        "overage",
+        "$"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "billing_agent"
+      ],
+      "required_agents": [
+        "billing_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "billing_02",
+      "category": "billing",
+      "paraphrase_group": "line_items_1002",
+      "query": "Break down customer CUST-1002's bill for July 2019.",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "base",
+        "tax",
+        "$"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "billing_agent"
+      ],
+      "required_agents": [
+        "billing_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "billing_03",
+      "category": "billing",
+      "paraphrase_group": "dispute_1001",
+      "query": "I think there's an extra fee on CUST-1001's July 2019 bill \u2014 what is it?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "surcharge",
+        "fee"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "billing_agent"
+      ],
+      "required_agents": [
+        "billing_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "anomaly_01_a",
+      "category": "anomaly",
+      "paraphrase_group": "spikes_1001_july",
+      "query": "Did CUST-1001 have any usage spikes in July 2019?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "anomaly_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike",
+        "kw"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "anomaly_detection_agent"
+      ],
+      "required_agents": [
+        "anomaly_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "anomaly_01_b",
+      "category": "anomaly",
+      "paraphrase_group": "spikes_1001_july",
+      "query": "Were there any unusual energy use periods for CUST-1001 last July 2019?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "anomaly_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike",
+        "kw"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "anomaly_detection_agent"
+      ],
+      "required_agents": [
+        "anomaly_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "anomaly_01_c",
+      "category": "anomaly",
+      "paraphrase_group": "spikes_1001_july",
+      "query": "Show me when CUST-1001's electricity use was abnormal in July 2019.",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "anomaly_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike",
+        "kw"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "anomaly_detection_agent"
+      ],
+      "required_agents": [
+        "anomaly_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "anomaly_02",
+      "category": "anomaly",
+      "paraphrase_group": "anomaly_1002",
+      "query": "Detect anomalies in customer CUST-1002's usage during July 2019.",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "anomaly_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "anomaly_detection_agent"
+      ],
+      "required_agents": [
+        "anomaly_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "outage_01_a",
+      "category": "outage",
+      "paraphrase_group": "outage_1002_july",
+      "query": "Was there an outage affecting CUST-1002 in July 2019?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "outage_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "outage",
+        "minute"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "outage_detection_agent"
+      ],
+      "required_agents": [
+        "outage_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "outage_01_b",
+      "category": "outage",
+      "paraphrase_group": "outage_1002_july",
+      "query": "Did CUST-1002 lose power at any point during July 2019?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "outage_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "outage",
+        "minute"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "outage_detection_agent"
+      ],
+      "required_agents": [
+        "outage_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "outage_01_c",
+      "category": "outage",
+      "paraphrase_group": "outage_1002_july",
+      "query": "I want to know whether there were any service interruptions for CUST-1002 in July 2019.",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "outage_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "outage",
+        "minute"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "outage_detection_agent"
+      ],
+      "required_agents": [
+        "outage_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "outage_02",
+      "category": "outage",
+      "paraphrase_group": "outage_1001",
+      "query": "Check whether CUST-1001 was affected by any outages in July 2019.",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "outage_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "outage"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "outage_detection_agent"
+      ],
+      "required_agents": [
+        "outage_detection_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "weather_01_a",
+      "category": "weather",
+      "paraphrase_group": "weather_explains_1001",
+      "query": "Did weather in July 2019 explain CUST-1001's higher usage?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "weather_context_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "hot",
+        "temperature"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "weather_context_agent"
+      ],
+      "required_agents": [
+        "weather_context_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "weather_01_b",
+      "category": "weather",
+      "paraphrase_group": "weather_explains_1001",
+      "query": "How hot was July 2019 for CUST-1001, and could that explain her bill?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "weather_context_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "hot",
+        "temperature"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "weather_context_agent"
+      ],
+      "required_agents": [
+        "weather_context_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "weather_01_c",
+      "category": "weather",
+      "paraphrase_group": "weather_explains_1001",
+      "query": "Was unusual weather a factor in CUST-1001's July 2019 power use?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "weather_context_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "hot",
+        "temperature"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "weather_context_agent"
+      ],
+      "required_agents": [
+        "weather_context_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "weather_02",
+      "category": "weather",
+      "paraphrase_group": "weather_1002",
+      "query": "What was the temperature like for CUST-1002's area in July 2019?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "weather_context_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "temperature"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "weather_context_agent"
+      ],
+      "required_agents": [
+        "weather_context_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "solar_01_a",
+      "category": "solar",
+      "paraphrase_group": "solar_underperf_1001",
+      "query": "Did CUST-1001's solar panels underperform in July 2019?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "expected_facts": [
+        "solar",
+        "july 2019"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "required_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "solar_01_b",
+      "category": "solar",
+      "paraphrase_group": "solar_underperf_1001",
+      "query": "Were CUST-1001's solar credits lower than usual in July 2019?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "expected_facts": [
+        "solar",
+        "july 2019"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "required_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "solar_01_c",
+      "category": "solar",
+      "paraphrase_group": "solar_underperf_1001",
+      "query": "Check whether the solar system for CUST-1001 was generating normally in July 2019.",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "expected_facts": [
+        "solar",
+        "july 2019"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "required_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "solar_02",
+      "category": "solar",
+      "paraphrase_group": "solar_1002",
+      "query": "Estimate solar credit loss for CUST-1002 in July 2019.",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "expected_facts": [
+        "solar",
+        "july 2019"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "required_agents": [
+        "solar_performance_credit_loss_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "payment_01_a",
+      "category": "payment_risk",
+      "paraphrase_group": "hardship_1002",
+      "query": "Is CUST-1002 at risk of falling behind on payments?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "payment_risk_hardship_agent"
+      ],
+      "expected_facts": [
+        "risk",
+        "payment"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "payment_risk_hardship_agent"
+      ],
+      "required_agents": [
+        "payment_risk_hardship_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "payment_01_b",
+      "category": "payment_risk",
+      "paraphrase_group": "hardship_1002",
+      "query": "I'm worried CUST-1002 can't pay this month \u2014 what's their risk?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "payment_risk_hardship_agent"
+      ],
+      "expected_facts": [
+        "risk",
+        "payment"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "payment_risk_hardship_agent"
+      ],
+      "required_agents": [
+        "payment_risk_hardship_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "payment_01_c",
+      "category": "payment_risk",
+      "paraphrase_group": "hardship_1002",
+      "query": "Could CUST-1002 be heading toward delinquency on their utility bill?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "payment_risk_hardship_agent"
+      ],
+      "expected_facts": [
+        "risk",
+        "payment"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "payment_risk_hardship_agent"
+      ],
+      "required_agents": [
+        "payment_risk_hardship_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "payment_02",
+      "category": "payment_risk",
+      "paraphrase_group": "program_1002",
+      "query": "Would budget billing or a level-pay program help CUST-1002 for July 2019?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "program_enrollment_simulation_agent"
+      ],
+      "expected_facts": [
+        "program",
+        "level"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "program_enrollment_simulation_agent"
+      ],
+      "required_agents": [
+        "program_enrollment_simulation_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "multihop_01",
+      "category": "billing",
+      "paraphrase_group": "multihop_full_1001",
+      "query": "Explain CUST-1001's high July 2019 bill \u2014 include any usage anomalies, weather context, and outages.",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "billing_agent",
+        "anomaly_detection_agent",
+        "weather_context_agent",
+        "outage_detection_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike",
+        "hot",
+        "outage",
+        "$"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "customer_lookup_agent",
+        "billing_agent",
+        "anomaly_detection_agent",
+        "weather_context_agent",
+        "outage_detection_agent"
+      ],
+      "required_agents": [
+        "billing_agent"
+      ],
+      "optional_agents": [
+        "anomaly_detection_agent",
+        "weather_context_agent",
+        "outage_detection_agent"
+      ]
+    },
+    {
+      "task_id": "multihop_02",
+      "category": "outage",
+      "paraphrase_group": "outage_credit_1002",
+      "query": "Was there an outage for CUST-1002 in July 2019, and how did it affect their bill?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "outage_detection_agent",
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "outage",
+        "bill"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "outage_detection_agent",
+        "billing_agent"
+      ],
+      "required_agents": [
+        "outage_detection_agent",
+        "billing_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "multihop_03",
+      "category": "weather",
+      "paraphrase_group": "weather_anomaly_1001",
+      "query": "Are the spikes in CUST-1001's July 2019 usage tied to the weather?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "anomaly_detection_agent",
+        "weather_context_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike",
+        "hot"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "anomaly_detection_agent",
+        "weather_context_agent"
+      ],
+      "required_agents": [
+        "anomaly_detection_agent"
+      ],
+      "optional_agents": [
+        "weather_context_agent"
+      ]
+    },
+    {
+      "task_id": "multihop_04",
+      "category": "payment_risk",
+      "paraphrase_group": "shock_risk_1002",
+      "query": "Forecast CUST-1002's next bill and tell me if it'll be a shock or hardship trigger.",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "bill_shock_forecast_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "expected_facts": [
+        "forecast",
+        "risk"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "bill_shock_forecast_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "required_agents": [
+        "bill_shock_forecast_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "multihop_05",
+      "category": "billing",
+      "paraphrase_group": "lookup_billing_1001",
+      "query": "Pull up CUST-1001's account and tell me what they were billed for July 2019.",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "customer_lookup_agent",
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "$"
+      ],
+      "must_mention_customer_id": false,
+      "expected_sequence": [
+        "customer_lookup_agent",
+        "billing_agent"
+      ],
+      "required_agents": [
+        "billing_agent",
+        "customer_lookup_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "multihop_06",
+      "category": "payment_risk",
+      "paraphrase_group": "outage_risk_1002",
+      "query": "An outage affected CUST-1002 in July 2019 \u2014 could the resulting bill push them into payment risk?",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "outage_detection_agent",
+        "bill_shock_forecast_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "expected_sequence": [
+        "outage_detection_agent",
+        "bill_shock_forecast_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "outage",
+        "risk"
+      ],
+      "must_mention_customer_id": false,
+      "required_agents": [
+        "outage_detection_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "optional_agents": [
+        "bill_shock_forecast_agent"
+      ]
+    },
+    {
+      "task_id": "multihop_07",
+      "category": "solar",
+      "paraphrase_group": "weather_solar_billing_1001",
+      "query": "Did July 2019 weather cause CUST-1001's solar to underperform and drive up their bill?",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "weather_context_agent",
+        "solar_performance_credit_loss_agent",
+        "billing_agent"
+      ],
+      "expected_sequence": [
+        "weather_context_agent",
+        "solar_performance_credit_loss_agent",
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "solar",
+        "hot"
+      ],
+      "must_mention_customer_id": false,
+      "required_agents": [
+        "solar_performance_credit_loss_agent",
+        "billing_agent"
+      ],
+      "optional_agents": [
+        "weather_context_agent"
+      ]
+    },
+    {
+      "task_id": "multihop_08",
+      "category": "anomaly",
+      "paraphrase_group": "lookup_anomaly_program_1002",
+      "query": "For CUST-1002 in July 2019, look up their account, check for usage spikes, and recommend a program that could help.",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "customer_lookup_agent",
+        "anomaly_detection_agent",
+        "program_enrollment_simulation_agent"
+      ],
+      "expected_sequence": [
+        "customer_lookup_agent",
+        "anomaly_detection_agent",
+        "program_enrollment_simulation_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike",
+        "program"
+      ],
+      "must_mention_customer_id": false,
+      "required_agents": [
+        "anomaly_detection_agent",
+        "program_enrollment_simulation_agent",
+        "customer_lookup_agent"
+      ],
+      "optional_agents": []
+    },
+    {
+      "task_id": "multihop_09",
+      "category": "payment_risk",
+      "paraphrase_group": "forecast_program_risk_1002",
+      "query": "Forecast CUST-1002's next bill, simulate whether program enrollment would lower it, and assess final payment risk.",
+      "customer_id": "CUST-1002",
+      "expected_agents": [
+        "bill_shock_forecast_agent",
+        "program_enrollment_simulation_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "expected_sequence": [
+        "bill_shock_forecast_agent",
+        "program_enrollment_simulation_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "expected_facts": [
+        "forecast",
+        "program",
+        "risk"
+      ],
+      "must_mention_customer_id": false,
+      "required_agents": [
+        "bill_shock_forecast_agent",
+        "payment_risk_hardship_agent"
+      ],
+      "optional_agents": [
+        "program_enrollment_simulation_agent"
+      ]
+    },
+    {
+      "task_id": "multihop_10",
+      "category": "billing",
+      "paraphrase_group": "full_investigation_1001",
+      "query": "Investigate CUST-1001's July 2019 charges in full: check for usage anomalies, weather context, any outages, and explain the final bill.",
+      "customer_id": "CUST-1001",
+      "expected_agents": [
+        "anomaly_detection_agent",
+        "weather_context_agent",
+        "outage_detection_agent",
+        "billing_agent"
+      ],
+      "expected_sequence": [
+        "anomaly_detection_agent",
+        "weather_context_agent",
+        "outage_detection_agent",
+        "billing_agent"
+      ],
+      "expected_facts": [
+        "july 2019",
+        "spike",
+        "hot",
+        "outage",
+        "$"
+      ],
+      "must_mention_customer_id": false,
+      "required_agents": [
+        "billing_agent"
+      ],
+      "optional_agents": [
+        "anomaly_detection_agent",
+        "weather_context_agent",
+        "outage_detection_agent"
+      ]
+    }
+  ]
+}

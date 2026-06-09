@@ -1,0 +1,5 @@
+system,n,task_success_rate,judge_success_rate,judge_overall_mean,judge_actionability_mean,numerical_accuracy_mean,hallucination_rate_mean,agent_f1_mean,weighted_f1_mean,sequence_accuracy_mean,fact_coverage_mean,latency_ms_mean,overhead_ratio_mean,tokens_mean,paraphrase_consistency
+langgraph,70,0.971,1,4.91,4.69,0.787,0.213,0.887,0.916,0.927,0.937,9348,1.0,4982,0.965
+one_shot,70,0.857,0,3.03,2.87,,,0.0,0.0,0.0,0.744,3178,1.0,329,1.0
+orchestrator,70,0.929,0.943,4.84,4.81,0.784,0.216,0.815,0.914,0.961,0.921,17380,0.819,0,0.971
+rag,70,0.871,0.671,4.25,3.73,0.585,0.415,0.0,0.0,0.0,0.814,4133,1.0,1900,1.0
