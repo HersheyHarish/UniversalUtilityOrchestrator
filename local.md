@@ -43,7 +43,7 @@ Minimum `orchestrator/.env` content:
 ```bash
 AZURE_OPENAI_API_KEY=<your-key>
 AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_DEPLOYMENT=gpt-5.4nano
 ```
 
 Copy from the template:
@@ -69,7 +69,7 @@ cp orchestrator/.env.example orchestrator/.env
 
 ## 2. Docker Compose architecture
 
-File: [`docker-compose.yml`](./docker-compose.yml)
+File: [`docker-compose.yml`](.azure/docker-compose.yml)
 
 ```
                     ┌─────────────────────────────────────────┐

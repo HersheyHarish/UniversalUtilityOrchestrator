@@ -60,7 +60,7 @@ A **multi-agent orchestration platform** on Microsoft Azure: register HTTP agent
 
 ### Who built it?
 
-**CS Masters Capstone** — Built by MCS students at University of California, Irvine. 
+**CS Masters Capstone** — Built by MCS students at University of California, Irvine. <br>
 **Sponsored by Accenture** - Special Thanks to Shawna Tuli, Mo Nomeli, Vishrut Chokshi, Cheryl Linder
 
 ---
@@ -72,7 +72,7 @@ A **multi-agent orchestration platform** on Microsoft Azure: register HTTP agent
 | _Harish Sundarakumar_| Project lead / orchestrator / Customer UIs (chatbot, zero-clicks) / Admin UI (Registry) / Security / Optimizations  | _[sundarh1@uci.edu]_ |
 | _Sanket Landge_ | infra (Terraform) / Admin UI (Registry) / Orchestrator / Testing | _[slandge@uci.edu]_ |
 | _Arya Gupta_ | Demo agents / integrations (external) / Orchestrator / Research / cloud | _[aagupta1@uci.edu]_ |
-| _Shaun Morata Lim_ | Orchstrator / Security / Research / Testing   | _[shaunl1@uci.edu]_ |
+| _Shaun Morata Lim_ | Orchstrator / Security / Research / Testing | _[shaunl1@uci.edu]_ |
 
 **Course / org:** CS Masters Capstone — set `Owner` and `CostCenter` in `infra/terraform.tfvars` (see `terraform.tfvars.example`).
 
@@ -706,9 +706,9 @@ bash infra/deploy.sh --destroy --env dev --suffix ua001
 
 | Item | Value |
 |------|--------|
-| **Link** | _[Add YouTube / SharePoint / course submission URL]_ |
-| **Recorded** | _[Date]_ |
-| **Covers** | Suggested: Docker startup → registry import → chat demo → trace explorer → proactive notification on zero-clicks dashboard |
+| **Link** | https://drive.google.com/file/d/10UD7kSg33yrxoOylt4YMiyOfw4JxX9JM/view?usp=sharing |
+| **Recorded** | 6/9/26 |
+| **Covers** | Main Problem -> Solution -> Novelty -> Scenario 1 (Chatbot) -> Scenario 2 (AI Insights) -> Scenario 3 -> (Proactive Trigger) -> Management UI |
 
 ---
 
@@ -725,7 +725,6 @@ bash infra/deploy.sh --destroy --env dev --suffix ua001
 
 ### Future work
 
-- [ ] Check in demo video URL and capstone team roster
 - [ ] Align Cosmos container partition keys between Terraform and `init_cosmos_emulator.py`
 - [ ] Enable optional `ORCHESTRATOR_EVAL_ENABLED` in staging
 - [ ] Remote Terraform state backend for team deploys
@@ -763,7 +762,7 @@ bash infra/deploy.sh --destroy --env dev --suffix ua001
 |----------|------|
 | Implementation deep-dive | [TECHNICAL_DOCUMENTATION.md](./TECHNICAL_DOCUMENTATION.md) |
 | Docker quick notes | [local.md](./local.md) |
-| Orchestrator env template | [orchestrator/.env.example](./orchestrator/.env.example) |
-| Deploy script | [infra/deploy.sh](./infra/deploy.sh) |
+| Orchestrator env template | [orchestrator/.env.example](.azure/orchestrator/.env.example) |
+| Deploy script | [infra/deploy.sh](.azure/infra/deploy.sh) |
 
 **Questions?** Start with health endpoints, then registry agent count, then OpenAI env vars — most local failures are missing `.env` OpenAI settings or an empty agent registry.
